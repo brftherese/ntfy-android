@@ -25,7 +25,6 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.stfalcon.imageviewer.StfalconImageViewer
 import io.heckel.ntfy.R
 import io.heckel.ntfy.db.*
@@ -109,6 +108,9 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
         private val attachmentInfoView: TextView = itemView.findViewById(R.id.detail_item_attachment_file_info)
         private val actionsWrapperView: ConstraintLayout = itemView.findViewById(R.id.detail_item_actions_wrapper)
         private val actionsFlow: Flow = itemView.findViewById(R.id.detail_item_actions_flow)
+        private val replyBox: View = itemView.findViewById(R.id.detail_item_reply_box)
+        private val replyText: EditText = itemView.findViewById(R.id.detail_item_reply_text)
+        private val replySend: MaterialButton = itemView.findViewById(R.id.detail_item_reply_send)
 
         fun bind(notification: Notification) {
             this.notification = notification
@@ -257,6 +259,8 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
             actionsFlow.allViews.forEach { actionsFlow.removeView(it) }
             actionsWrapperView.removeAllViews()
             actionsWrapperView.addView(actionsFlow)
+            replyBox.visibility = View.GONE
+            replyText.text.clear()
         }
 
         private fun addButtonToCard(button: View) {
@@ -547,29 +551,10 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
 
         private fun runOtherUserAction(context: Context, notification: Notification, action: Action) {
             // A Reply has a text box in the shade and on the watch (RemoteInput); in the app it
-            // had none and posted nothing, so ask for the words here and send them the same way.
+            // had none and posted nothing. It opens one in the card, under the message, and
+            // sends the words the same way.
             if (NotificationService.isReplyHttpAction(action)) {
-                val input = EditText(context).apply {
-                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-                    minLines = 2
-                }
-                val frame = FrameLayout(context).apply {
-                    val pad = (20 * context.resources.displayMetrics.density).toInt()
-                    setPadding(pad, pad / 2, pad, 0)
-                    addView(input)
-                }
-                val dialog = MaterialAlertDialogBuilder(context)
-                    .setTitle(action.label)
-                    .setView(frame)
-                    .setPositiveButton("Send") { _, _ ->
-                        val text = input.text.toString().trim()
-                        if (text.isNotEmpty()) UserActionManager.enqueue(context, notification.id, action.id, text)
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .create()
-                dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-                dialog.show()
-                input.requestFocus()
+                openReplyBox(context, notification, action)
                 return
             }
             val intent = Intent(context, NotificationService.UserActionBroadcastReceiver::class.java).apply {
@@ -578,6 +563,23 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
                 putExtra(NotificationService.BROADCAST_EXTRA_ACTION_ID, action.id)
             }
             context.sendBroadcast(intent)
+        }
+
+        private fun openReplyBox(context: Context, notification: Notification, action: Action) {
+            replyBox.visibility = View.VISIBLE
+            replyText.hint = action.label
+            replyText.requestFocus()
+            val keyboard = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            replyText.post { keyboard.showSoftInput(replyText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
+            replySend.setOnClickListener {
+                val text = replyText.text.toString().trim()
+                if (text.isEmpty()) return@setOnClickListener
+                UserActionManager.enqueue(context, notification.id, action.id, text)
+                keyboard.hideSoftInputFromWindow(replyText.windowToken, 0)
+                replyText.text.clear()
+                replyBox.visibility = View.GONE
+                Toast.makeText(context, "Sent", Toast.LENGTH_SHORT).show()
+            }
         }
 
         private fun previewableImage(fileStat: FileInfo?): Boolean {

@@ -184,12 +184,40 @@
                     app:constraint_referenced_ids="button1,button2,button3"/>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
+        <LinearLayout
+                android:id="@+id/detail_item_reply_box"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="bottom"
+                android:visibility="gone"
+                app:layout_constraintTop_toBottomOf="@id/detail_item_actions_wrapper"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                android:layout_marginStart="12dp" android:layout_marginEnd="4dp">
+            <EditText
+                    android:id="@+id/detail_item_reply_text"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Reply"
+                    android:inputType="textCapSentences|textMultiLine"
+                    android:maxLines="6"
+                    android:importantForAutofill="no"/>
+            <com.google.android.material.button.MaterialButton
+                    android:id="@+id/detail_item_reply_send"
+                    style="?attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Send"
+                    android:textSize="14sp"/>
+        </LinearLayout>
         <TextView
                 android:layout_width="match_parent"
                 android:layout_height="4dp"
                 android:id="@+id/detail_item_padding_bottom"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/detail_item_actions_wrapper" app:layout_constraintBottom_toBottomOf="parent"/>
+                app:layout_constraintTop_toBottomOf="@id/detail_item_reply_box" app:layout_constraintBottom_toBottomOf="parent"/>
         <ImageView
                 android:layout_width="wrap_content"
                 android:layout_height="0dp"

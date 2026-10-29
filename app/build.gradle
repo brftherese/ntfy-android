@@ -17,7 +17,7 @@ android {
         minSdkVersion 26
         targetSdkVersion 36
 
-        versionCode 65
+        versionCode 66
         versionName "1.25.2"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -38,7 +38,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-reply3"
+            versionNameSuffix "-pebble-reply4"
             signingConfig signingConfigs.debug
         }
         debug {
