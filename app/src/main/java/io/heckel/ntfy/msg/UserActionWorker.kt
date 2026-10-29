@@ -82,7 +82,16 @@ class UserActionWorker(private val context: Context, params: WorkerParameters) :
         val url = action.url ?: return
         val method = action.method ?: DEFAULT_HTTP_ACTION_METHOD
         val defaultBody = if (listOf("GET", "HEAD").contains(method)) null else ""
-        val body = action.body ?: defaultBody
+        val remoteInput = inputData.getString(INPUT_DATA_REMOTE_INPUT)
+        val body = if (!remoteInput.isNullOrEmpty()) {
+            if (!action.body.isNullOrEmpty() && action.body.contains("{{reply}}")) {
+                action.body.replace("{{reply}}", remoteInput)
+            } else {
+                remoteInput
+            }
+        } else {
+            action.body ?: defaultBody
+        }
         val builder = HttpUtil.requestBuilder(url)
             .method(method, body?.toRequestBody())
         action.headers?.forEach { (key, value) ->
@@ -120,6 +129,7 @@ class UserActionWorker(private val context: Context, params: WorkerParameters) :
     companion object {
         const val INPUT_DATA_NOTIFICATION_ID = "notificationId"
         const val INPUT_DATA_ACTION_ID = "actionId"
+        const val INPUT_DATA_REMOTE_INPUT = "remoteInput"
 
         private const val DEFAULT_HTTP_ACTION_METHOD = "POST" // Cannot be changed without changing the contract
         private const val TAG = "NtfyUserActWrk"

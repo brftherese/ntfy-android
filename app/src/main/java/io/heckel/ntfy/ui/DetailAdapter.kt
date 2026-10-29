@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.stfalcon.imageviewer.StfalconImageViewer
 import io.heckel.ntfy.R
 import io.heckel.ntfy.db.*
@@ -34,6 +35,7 @@ import io.heckel.ntfy.msg.DownloadType
 import io.heckel.ntfy.msg.NotificationService
 import io.heckel.ntfy.msg.NotificationService.Companion.ACTION_COPY
 import io.heckel.ntfy.msg.NotificationService.Companion.ACTION_VIEW
+import io.heckel.ntfy.msg.UserActionManager
 import io.heckel.ntfy.util.*
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.CoroutineScope
@@ -544,6 +546,32 @@ class DetailAdapter(private val activity: Activity, private val lifecycleScope: 
         }
 
         private fun runOtherUserAction(context: Context, notification: Notification, action: Action) {
+            // A Reply has a text box in the shade and on the watch (RemoteInput); in the app it
+            // had none and posted nothing, so ask for the words here and send them the same way.
+            if (NotificationService.isReplyHttpAction(action)) {
+                val input = EditText(context).apply {
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    minLines = 2
+                }
+                val frame = FrameLayout(context).apply {
+                    val pad = (20 * context.resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad / 2, pad, 0)
+                    addView(input)
+                }
+                val dialog = MaterialAlertDialogBuilder(context)
+                    .setTitle(action.label)
+                    .setView(frame)
+                    .setPositiveButton("Send") { _, _ ->
+                        val text = input.text.toString().trim()
+                        if (text.isNotEmpty()) UserActionManager.enqueue(context, notification.id, action.id, text)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .create()
+                dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+                dialog.show()
+                input.requestFocus()
+                return
+            }
             val intent = Intent(context, NotificationService.UserActionBroadcastReceiver::class.java).apply {
                 putExtra(NotificationService.BROADCAST_EXTRA_TYPE, NotificationService.BROADCAST_TYPE_USER_ACTION)
                 putExtra(NotificationService.BROADCAST_EXTRA_NOTIFICATION_ID, notification.id)

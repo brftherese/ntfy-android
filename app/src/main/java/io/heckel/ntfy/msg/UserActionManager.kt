@@ -17,7 +17,7 @@ object UserActionManager {
     private const val TAG = "NtfyUserActionEx"
     private const val WORK_NAME_PREFIX = "io.heckel.ntfy.USER_ACTION_"
 
-    fun enqueue(context: Context, notificationId: String, actionId: String) {
+    fun enqueue(context: Context, notificationId: String, actionId: String, remoteInputText: String? = null) {
         val workManager = WorkManager.getInstance(context)
         val workName = WORK_NAME_PREFIX + notificationId + "_" + actionId
         Log.d(TAG,"Enqueuing work to execute user action for notification $notificationId, action $actionId, work: $workName")
@@ -25,6 +25,7 @@ object UserActionManager {
             .setInputData(workDataOf(
                 UserActionWorker.INPUT_DATA_NOTIFICATION_ID to notificationId,
                 UserActionWorker.INPUT_DATA_ACTION_ID to actionId,
+                UserActionWorker.INPUT_DATA_REMOTE_INPUT to remoteInputText,
             ))
             .build()
         workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.KEEP, workRequest)

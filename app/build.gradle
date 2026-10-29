@@ -17,7 +17,7 @@ android {
         minSdkVersion 26
         targetSdkVersion 36
 
-        versionCode 63
+        versionCode 65
         versionName "1.25.2"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -37,9 +37,9 @@ android {
             minifyEnabled false
             shrinkResources false
             debuggable false
-            // DEV/TEST ONLY: Uncomment this to test the release build with a debug key.
-            //                This is required to test against the production Firebase config.
-            // signingConfig signingConfigs.debug
+            applicationIdSuffix ".pebble"
+            versionNameSuffix "-pebble-reply3"
+            signingConfig signingConfigs.debug
         }
         debug {
             minifyEnabled false

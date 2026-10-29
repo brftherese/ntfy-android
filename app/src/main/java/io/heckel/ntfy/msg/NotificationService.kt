@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.app.RemoteInput
 import io.heckel.ntfy.R
 import io.heckel.ntfy.db.*
 import io.heckel.ntfy.db.Notification
@@ -100,11 +101,13 @@ class NotificationService(val context: Context) {
         maybeSetDeleteIntent(builder, insistent)
         maybeSetSound(builder, insistent, update)
         maybeSetProgress(builder, notification)
-        maybeAddOpenAction(builder, notification)
-        maybeAddBrowseAction(builder, notification)
-        maybeAddDownloadAction(builder, notification)
-        maybeAddCancelAction(builder, notification)
-        maybeAddUserActions(builder, notification)
+        val wearableExtender = NotificationCompat.WearableExtender()
+        maybeAddOpenAction(builder, wearableExtender, notification)
+        maybeAddBrowseAction(builder, wearableExtender, notification)
+        maybeAddDownloadAction(builder, wearableExtender, notification)
+        maybeAddCancelAction(builder, wearableExtender, notification)
+        maybeAddUserActions(builder, wearableExtender, notification)
+        builder.extend(wearableExtender)
 
         maybeCreateNotificationGroup(groupId, subscriptionGroupName(subscription))
         maybeCreateNotificationChannel(groupId, notification.priority)
@@ -206,7 +209,16 @@ class NotificationService(val context: Context) {
         }
     }
 
-    private fun maybeAddOpenAction(builder: NotificationCompat.Builder, notification: Notification) {
+    private fun addAction(
+        builder: NotificationCompat.Builder,
+        wearableExtender: NotificationCompat.WearableExtender,
+        action: NotificationCompat.Action
+    ) {
+        builder.addAction(action)
+        wearableExtender.addAction(action)
+    }
+
+    private fun maybeAddOpenAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         if (!canOpenAttachment(notification.attachment)) {
             return
         }
@@ -217,43 +229,43 @@ class NotificationService(val context: Context) {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val pendingIntent = PendingIntent.getActivity(context, Random().nextInt(), intent, PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_open), pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_open), pendingIntent).build())
         }
     }
 
-    private fun maybeAddBrowseAction(builder: NotificationCompat.Builder, notification: Notification) {
+    private fun maybeAddBrowseAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         if (notification.attachment?.contentUri != null) {
             val intent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val pendingIntent = PendingIntent.getActivity(context, Random().nextInt(), intent, PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_browse), pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_browse), pendingIntent).build())
         }
     }
 
-    private fun maybeAddDownloadAction(builder: NotificationCompat.Builder, notification: Notification) {
+    private fun maybeAddDownloadAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         if (notification.attachment?.contentUri == null && listOf(ATTACHMENT_PROGRESS_NONE, ATTACHMENT_PROGRESS_FAILED).contains(notification.attachment?.progress)) {
             val intent = Intent(context, UserActionBroadcastReceiver::class.java).apply {
                 putExtra(BROADCAST_EXTRA_TYPE, BROADCAST_TYPE_DOWNLOAD_START)
                 putExtra(BROADCAST_EXTRA_NOTIFICATION_ID, notification.id)
             }
             val pendingIntent = PendingIntent.getBroadcast(context, Random().nextInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_download), pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_download), pendingIntent).build())
         }
     }
 
-    private fun maybeAddCancelAction(builder: NotificationCompat.Builder, notification: Notification) {
+    private fun maybeAddCancelAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         if (notification.attachment?.contentUri == null && notification.attachment?.progress in 0..99) {
             val intent = Intent(context, UserActionBroadcastReceiver::class.java).apply {
                 putExtra(BROADCAST_EXTRA_TYPE, BROADCAST_TYPE_DOWNLOAD_CANCEL)
                 putExtra(BROADCAST_EXTRA_NOTIFICATION_ID, notification.id)
             }
             val pendingIntent = PendingIntent.getBroadcast(context, Random().nextInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_cancel), pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, context.getString(R.string.notification_popup_action_cancel), pendingIntent).build())
         }
     }
 
-    private fun maybeAddUserActions(builder: NotificationCompat.Builder, notification: Notification) {
+    private fun maybeAddUserActions(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         notification.actions?.forEach { action ->
             val actionType = action.action.lowercase(Locale.getDefault())
             if (actionType == ACTION_VIEW) {
@@ -262,12 +274,12 @@ class NotificationService(val context: Context) {
                 // launch our own Activity (ViewActionWithClearActivity) which then calls the actual activity
 
                 if (action.clear == true) {
-                    addViewUserActionWithClear(builder, notification, action)
+                    addViewUserActionWithClear(builder, wearableExtender, notification, action)
                 } else {
-                    addViewUserActionWithoutClear(builder, action)
+                    addViewUserActionWithoutClear(builder, wearableExtender, action)
                 }
             } else {
-                addHttpBroadcastOrCopyUserAction(builder, notification, action)
+                addHttpBroadcastOrCopyUserAction(builder, wearableExtender, notification, action)
             }
         }
     }
@@ -276,14 +288,14 @@ class NotificationService(val context: Context) {
      * Open the URL and do NOT cancel the notification (clear=false). This uses a normal Intent with the given URL.
      * The other case is much more interesting.
      */
-    private fun addViewUserActionWithoutClear(builder: NotificationCompat.Builder, action: Action) {
+    private fun addViewUserActionWithoutClear(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, action: Action) {
         try {
             val url = action.url ?: return
             val intent = Intent(Intent.ACTION_VIEW, url.toUri()).apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             }
             val pendingIntent = PendingIntent.getActivity(context, Random().nextInt(), intent, PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, action.label, pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, action.label, pendingIntent).build())
         } catch (e: Exception) {
             Log.w(TAG, "Unable to add open user action", e)
         }
@@ -293,7 +305,7 @@ class NotificationService(val context: Context) {
      * HACK: Open the URL and CANCEL the notification (clear=true). This is a SPECIAL case with a horrible workaround.
      * We call our own activity ViewActionWithClearActivity and open the URL from there.
      */
-    private fun addViewUserActionWithClear(builder: NotificationCompat.Builder, notification: Notification, action: Action) {
+    private fun addViewUserActionWithClear(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification, action: Action) {
         try {
             val url = action.url ?: return
             val intent = Intent(context, ViewActionWithClearActivity::class.java).apply {
@@ -304,21 +316,36 @@ class NotificationService(val context: Context) {
                 putExtra(VIEW_ACTION_EXTRA_SEQUENCE_ID, notification.sequenceId)
             }
             val pendingIntent = PendingIntent.getActivity(context, Random().nextInt(), intent, PendingIntent.FLAG_IMMUTABLE)
-            builder.addAction(NotificationCompat.Action.Builder(0, action.label, pendingIntent).build())
+            addAction(builder, wearableExtender, NotificationCompat.Action.Builder(0, action.label, pendingIntent).build())
         } catch (e: Exception) {
             Log.w(TAG, "Unable to add open user action", e)
         }
     }
 
-    private fun addHttpBroadcastOrCopyUserAction(builder: NotificationCompat.Builder, notification: Notification, action: Action) {
+    private fun addHttpBroadcastOrCopyUserAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification, action: Action) {
         val intent = Intent(context, UserActionBroadcastReceiver::class.java).apply {
             putExtra(BROADCAST_EXTRA_TYPE, BROADCAST_TYPE_USER_ACTION)
             putExtra(BROADCAST_EXTRA_NOTIFICATION_ID, notification.id)
             putExtra(BROADCAST_EXTRA_ACTION_ID, action.id)
         }
-        val pendingIntent = PendingIntent.getBroadcast(context, Random().nextInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val isReply = isReplyHttpAction(action)
+        val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or if (isReply) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE
+        val pendingIntent = PendingIntent.getBroadcast(context, Random().nextInt(), intent, pendingFlags)
         val label = formatActionLabel(action)
-        builder.addAction(NotificationCompat.Action.Builder(0, label, pendingIntent).build())
+        val actionBuilder = NotificationCompat.Action.Builder(0, label, pendingIntent)
+        if (isReply) {
+            val remoteInput = RemoteInput.Builder(REMOTE_INPUT_KEY)
+                .setLabel(action.label)
+                .build()
+            // Marked as an inline reply that opens no screen, as messaging apps do;
+            // otherwise the shade can show the field's cursor without raising the keyboard.
+            actionBuilder
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+                .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+                .setShowsUserInterface(false)
+        }
+        addAction(builder, wearableExtender, actionBuilder.build())
     }
 
     /**
@@ -337,7 +364,8 @@ class NotificationService(val context: Context) {
                 BROADCAST_TYPE_DOWNLOAD_CANCEL -> DownloadManager.cancel(context, notificationId)
                 BROADCAST_TYPE_USER_ACTION -> {
                     val actionId = intent.getStringExtra(BROADCAST_EXTRA_ACTION_ID) ?: return
-                    UserActionManager.enqueue(context, notificationId, actionId)
+                    val remoteInputText = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REMOTE_INPUT_KEY)?.toString()
+                    UserActionManager.enqueue(context, notificationId, actionId, remoteInputText)
                 }
             }
         }
@@ -524,6 +552,17 @@ class NotificationService(val context: Context) {
         const val ACTION_HTTP = "http"
         const val ACTION_BROADCAST = "broadcast"
         const val ACTION_COPY = "copy"
+
+        const val REMOTE_INPUT_KEY = "ntfy_remote_input"
+        const val HEADER_NTFY_INPUT = "X-Ntfy-Input"
+
+        fun isReplyHttpAction(action: Action): Boolean {
+            if (action.action.lowercase(Locale.getDefault()) != ACTION_HTTP) return false
+            val headerMatch = action.headers?.entries?.any {
+                it.key.equals(HEADER_NTFY_INPUT, ignoreCase = true) && it.value.equals("true", ignoreCase = true)
+            } == true
+            return headerMatch || action.label.trim().equals("Reply", ignoreCase = true)
+        }
 
         const val BROADCAST_EXTRA_TYPE = "type"
         const val BROADCAST_EXTRA_NOTIFICATION_ID = "notificationId"
