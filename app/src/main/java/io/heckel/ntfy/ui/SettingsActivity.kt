@@ -257,6 +257,46 @@ class SettingsActivity : AppCompatActivity(), PreferenceFragmentCompat.OnPrefere
                 }
             }
 
+            // speak
+            val speakPrefId = context?.getString(R.string.settings_notifications_speak_key) ?: return
+            val speak: SwitchPreferenceCompat? = findPreference(speakPrefId)
+            speak?.isChecked = repository.getSpeakEnabled()
+            speak?.preferenceDataStore = object : PreferenceDataStore() {
+                override fun putBoolean(key: String?, value: Boolean) {
+                    repository.setSpeakEnabled(value)
+                }
+                override fun getBoolean(key: String?, defValue: Boolean): Boolean {
+                    return repository.getSpeakEnabled()
+                }
+            }
+            speak?.summaryProvider = Preference.SummaryProvider<SwitchPreferenceCompat> { pref ->
+                if (pref.isChecked) {
+                    getString(R.string.settings_notifications_speak_summary_enabled)
+                } else {
+                    getString(R.string.settings_notifications_speak_summary_disabled)
+                }
+            }
+
+            // speak_ring_aloud
+            val speakRingAloudPrefId = context?.getString(R.string.settings_notifications_speak_ring_aloud_key) ?: return
+            val speakRingAloud: SwitchPreferenceCompat? = findPreference(speakRingAloudPrefId)
+            speakRingAloud?.isChecked = repository.getSpeakRingAloudEnabled()
+            speakRingAloud?.preferenceDataStore = object : PreferenceDataStore() {
+                override fun putBoolean(key: String?, value: Boolean) {
+                    repository.setSpeakRingAloudEnabled(value)
+                }
+                override fun getBoolean(key: String?, defValue: Boolean): Boolean {
+                    return repository.getSpeakRingAloudEnabled()
+                }
+            }
+            speakRingAloud?.summaryProvider = Preference.SummaryProvider<SwitchPreferenceCompat> { pref ->
+                if (pref.isChecked) {
+                    getString(R.string.settings_notifications_speak_ring_aloud_summary_enabled)
+                } else {
+                    getString(R.string.settings_notifications_speak_ring_aloud_summary_disabled)
+                }
+            }
+
             // Channel settings
             val channelPrefsPrefId = context?.getString(R.string.settings_notifications_channel_prefs_key) ?: return
             val channelPrefs: Preference? = findPreference(channelPrefsPrefId)

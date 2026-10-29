@@ -379,6 +379,12 @@
     <string name="settings_notifications_insistent_max_priority_title">Keep alerting for highest priority</string>
     <string name="settings_notifications_insistent_max_priority_summary_enabled">Max priority notifications continuously alert until dismissed</string>
     <string name="settings_notifications_insistent_max_priority_summary_disabled">Max priority notifications only alert once</string>
+    <string name="settings_notifications_speak_title">Speak infinity\'s notifications</string>
+    <string name="settings_notifications_speak_summary_enabled">Read aloud when headphones or the car are connected</string>
+    <string name="settings_notifications_speak_summary_disabled">Never read aloud</string>
+    <string name="settings_notifications_speak_ring_aloud_title">Speak ring answers on the speaker</string>
+    <string name="settings_notifications_speak_ring_aloud_summary_enabled">Answers to the ring are read aloud even without headphones</string>
+    <string name="settings_notifications_speak_ring_aloud_summary_disabled">Answers to the ring are read aloud only with headphones or the car</string>
     <string name="settings_general_header">General</string>
     <string name="settings_appearance_header">Appearance</string>
     <string name="settings_general_default_base_url_title">Default server</string>

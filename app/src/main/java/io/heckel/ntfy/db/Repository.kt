@@ -394,6 +394,26 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
         }
     }
 
+    fun getSpeakEnabled(): Boolean {
+        return sharedPrefs.getBoolean(SHARED_PREFS_SPEAK_ENABLED, true) // Enabled by default
+    }
+
+    fun setSpeakEnabled(enabled: Boolean) {
+        sharedPrefs.edit {
+            putBoolean(SHARED_PREFS_SPEAK_ENABLED, enabled)
+        }
+    }
+
+    fun getSpeakRingAloudEnabled(): Boolean {
+        return sharedPrefs.getBoolean(SHARED_PREFS_SPEAK_RING_ALOUD_ENABLED, true) // Enabled by default
+    }
+
+    fun setSpeakRingAloudEnabled(enabled: Boolean) {
+        sharedPrefs.edit {
+            putBoolean(SHARED_PREFS_SPEAK_RING_ALOUD_ENABLED, enabled)
+        }
+    }
+
     fun getRecordLogs(): Boolean {
         return sharedPrefs.getBoolean(SHARED_PREFS_RECORD_LOGS_ENABLED, false) // Disabled by default
     }
@@ -656,6 +676,8 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
         const val SHARED_PREFS_BROADCAST_ENABLED = "BroadcastEnabled"
         const val SHARED_PREFS_UNIFIEDPUSH_ENABLED = "UnifiedPushEnabled"
         const val SHARED_PREFS_INSISTENT_MAX_PRIORITY_ENABLED = "InsistentMaxPriority"
+        const val SHARED_PREFS_SPEAK_ENABLED = "SpeakPushes"
+        const val SHARED_PREFS_SPEAK_RING_ALOUD_ENABLED = "SpeakRingAloud"
         const val SHARED_PREFS_RECORD_LOGS_ENABLED = "RecordLogs"
         const val SHARED_PREFS_MESSAGE_BAR_ENABLED = "MessageBarEnabled"
         const val SHARED_PREFS_BATTERY_OPTIMIZATIONS_REMIND_TIME = "BatteryOptimizationsRemindTime" // Timestamp as millis

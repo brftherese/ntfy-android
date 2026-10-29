@@ -1,6 +1,7 @@
 package io.heckel.ntfy.util
 
 import android.content.ClipData
+import io.heckel.ntfy.msg.SpeechPlayer
 import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Context
@@ -175,7 +176,7 @@ fun toEmoji(tag: String): String? {
 }
 
 fun unmatchedTags(tags: List<String>): List<String> {
-    return tags.filter { tag -> toEmoji(tag) == null }
+    return tags.filter { tag -> toEmoji(tag) == null && !SpeechPlayer.isSpeechTag(tag) }
 }
 
 /**

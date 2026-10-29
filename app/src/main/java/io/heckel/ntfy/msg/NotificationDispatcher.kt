@@ -17,6 +17,7 @@ class NotificationDispatcher(val context: Context, val repository: Repository) {
     private val notifier = NotificationService(context)
     private val broadcaster = BroadcastService(context)
     private val distributor = Distributor(context)
+    private val speech = SpeechPlayer(context, repository)
 
     fun init() {
         notifier.createDefaultNotificationChannels()
@@ -36,6 +37,9 @@ class NotificationDispatcher(val context: Context, val repository: Repository) {
             notifier.cancel(notification.notificationId)
         } else if (notify) {
             notifier.display(subscription, notification)
+        }
+        if (notification.event == ApiService.EVENT_MESSAGE && !muted && subscription.upAppId == null) {
+            speech.maybeSpeak(notification)
         }
         if (broadcast) {
             broadcaster.sendMessage(subscription, notification, muted)
