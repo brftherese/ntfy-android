@@ -587,7 +587,8 @@ interface NotificationDao {
     @Query("SELECT * FROM notification")
     suspend fun list(): List<Notification>
 
-    @Query("SELECT * FROM notification WHERE subscriptionId = :subscriptionId AND deleted != 1 ORDER BY timestamp DESC")
+    // Pebble build: newest arrival first. The server stamps whole seconds and its clock can step back, so a burst sorted by timestamp came out of order.
+    @Query("SELECT * FROM notification WHERE subscriptionId = :subscriptionId AND deleted != 1 ORDER BY rowid DESC")
     fun listFlow(subscriptionId: Long): Flow<List<Notification>>
 
     @Query("""
@@ -599,7 +600,7 @@ interface NotificationDao {
             OR message LIKE '%' || :query || '%' COLLATE NOCASE
             OR tags LIKE '%' || :query || '%' COLLATE NOCASE
         )
-        ORDER BY timestamp DESC
+        ORDER BY rowid DESC
     """)
     fun listFlowFiltered(subscriptionId: Long, query: String): Flow<List<Notification>>
 

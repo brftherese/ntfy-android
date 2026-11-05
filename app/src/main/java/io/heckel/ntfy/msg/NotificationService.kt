@@ -82,6 +82,19 @@ class NotificationService(val context: Context) {
         return subscription.displayName ?: subscriptionTopicShortUrl(subscription)
     }
 
+    /**
+     * Pebble build: the time a fresh push reached the phone, in ms. The server's stamp is whole
+     * seconds and its clock can step back, so three cards sent within a second showed out of order
+     * (2026-11-05). A push caught up after being offline keeps the server's time.
+     */
+    private fun arrivedAt(notification: Notification): Long {
+        val sent = notification.timestamp * 1000
+        return arrivals.getOrPut(notification.id) {
+            val now = System.currentTimeMillis()
+            if (kotlin.math.abs(now - sent) < FRESH_MS) now else sent
+        }
+    }
+
     private fun displayInternal(subscription: Subscription, notification: Notification, update: Boolean = false) {
         val title = formatTitle(appBaseUrl, subscription, notification)
         val groupId = if (subscription.dedicatedChannels) subscriptionGroupId(subscription) else DEFAULT_GROUP
@@ -92,7 +105,7 @@ class NotificationService(val context: Context) {
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(Colors.notificationIcon(context))
             .setContentTitle(title)
-            .setWhen(notification.timestamp * 1000) // Set timestamp (convert seconds to millis)
+            .setWhen(arrivedAt(notification)) // Pebble build: when it reached the phone, so a burst stays in order
             .setShowWhen(true)
             .setOnlyAlertOnce(true) // Do not vibrate or play sound if already showing (updates!)
             .setAutoCancel(true) // Cancel when notification is clicked
@@ -548,6 +561,9 @@ class NotificationService(val context: Context) {
     }
 
     companion object {
+        private const val FRESH_MS = 10 * 60_000L
+        private val arrivals = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
         const val ACTION_VIEW = "view"
         const val ACTION_HTTP = "http"
         const val ACTION_BROADCAST = "broadcast"
