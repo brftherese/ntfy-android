@@ -232,9 +232,6 @@ class NotificationService(val context: Context) {
     }
 
     private fun maybeAddOpenAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
-        if (!canOpenAttachment(notification.attachment)) {
-            return
-        }
         if (notification.attachment?.contentUri != null) {
             val contentUri = notification.attachment.contentUri.toUri()
             val intent = Intent(Intent.ACTION_VIEW, contentUri).apply {
