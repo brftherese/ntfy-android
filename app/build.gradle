@@ -38,7 +38,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-speak2"
+            versionNameSuffix "-pebble-apk1"
             signingConfig signingConfigs.debug
         }
         debug {
