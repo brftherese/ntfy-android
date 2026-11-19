@@ -136,7 +136,12 @@ class DownloadAttachmentWorker(private val context: Context, params: WorkerParam
         } else {
             attachment.size // May be null!
         }
-        val mimeType = if (response.headers["Content-Type"] != null) {
+        // Pebble build: .pbw/.pbz/.pbl are zips inside, so the server says application/zip,
+        // but Core's Pebble app only opens them as application/octet-stream.
+        val pebbleFile = Regex("""\.(pbw|pbz|pbl)$""", RegexOption.IGNORE_CASE).containsMatchIn(attachment.name)
+        val mimeType = if (pebbleFile) {
+            "application/octet-stream"
+        } else if (response.headers["Content-Type"] != null) {
             response.headers["Content-Type"]
         } else {
             val ext = MimeTypeMap.getFileExtensionFromUrl(attachment.url)
