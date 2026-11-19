@@ -17,7 +17,7 @@ android {
         minSdkVersion 26
         targetSdkVersion 36
 
-        versionCode 68
+        versionCode 69
         versionName "1.25.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -38,7 +38,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-apk1"
+            versionNameSuffix "-pebble-watch1"
             signingConfig signingConfigs.debug
         }
         debug {

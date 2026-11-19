@@ -176,8 +176,10 @@ fun toEmoji(tag: String): String? {
 }
 
 fun unmatchedTags(tags: List<String>): List<String> {
-    return tags.filter { tag -> toEmoji(tag) == null && !SpeechPlayer.isSpeechTag(tag) }
+    return tags.filter { tag -> toEmoji(tag) == null && !SpeechPlayer.isSpeechTag(tag) && !isWatchTag(tag) }
 }
+
+private fun isWatchTag(tag: String): Boolean = tag.startsWith("watch-")
 
 /**
  * Prepend tags/emojis to message, but only if there is a non-empty title.

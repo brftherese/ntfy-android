@@ -16,6 +16,7 @@
     <string name="common_priority_default_name">Default priority</string>
     <string name="common_priority_high_name">High priority</string>
     <string name="common_priority_max_name">Max priority</string>
+    <string name="notification_popup_action_open_on_watch">Open on watch</string>
 
     <!-- Common certificate strings -->
     <string name="common_certificate_subject">Subject</string>
