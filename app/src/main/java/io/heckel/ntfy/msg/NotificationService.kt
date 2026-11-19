@@ -692,9 +692,9 @@ private object PebbleWatchAction {
         val intent = Intent(START_ACTION).putExtra(UUID_EXTRA, WATCH_UUID)
         // This is the documented PebbleKit Android broadcast. Core Devices' app may
         // accept it as compatibility support; its public docs do not currently promise that.
+        // Core's app (libpebble3 PebbleKitClassicStartListeners) registers an exported
+        // receiver for this action, so the plain broadcast reaches it. A second copy aimed
+        // at its package was dropped: redundant, and a possible Play Protect trigger.
         runCatching { context.sendBroadcast(intent) }
-        // If the new app implements the same protocol only as an app-scoped receiver,
-        // give it an explicit chance too. This is harmless because START is idempotent.
-        runCatching { context.sendBroadcast(Intent(intent).setPackage("coredevices.coreapp")) }
     }
 }
