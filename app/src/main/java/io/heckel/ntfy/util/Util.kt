@@ -372,6 +372,13 @@ fun supportedImage(mimeType: String?): Boolean {
     ).contains(mimeType)
 }
 
+// We cannot open .apk files, because we don't have the REQUEST_INSTALL_PACKAGES anymore
+// Play didn't grant us the permission, and F-Droid users didn't want us to have it.
+// See https://github.com/binwiederhier/ntfy/issues/531 & https://github.com/binwiederhier/ntfy/issues/684
+fun canOpenAttachment(attachment: Attachment?): Boolean {
+    return attachment?.type != ANDROID_APP_MIME_TYPE
+}
+
 // Check if battery optimization is enabled, see https://stackoverflow.com/a/49098293/1440785
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     val powerManager = context.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
