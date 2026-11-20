@@ -78,8 +78,10 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener { change ->
-                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                    if (isCurrent(jobGeneration)) stopCurrent(context.applicationContext)
+                // Only a lasting loss stops it (a call is caught by inCall); a brief transient loss
+                // right as it started may have cut ring answers off silently (2026-11-19).
+                if (change == AudioManager.AUDIOFOCUS_LOSS) {
+                    if (isCurrent(jobGeneration)) stopCurrent(context.applicationContext, "audio focus lost")
                 }
             }.build()
         val format = AudioFormat.Builder().setSampleRate(SAMPLE_RATE)
@@ -88,6 +90,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         val minBuffer = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         var track: AudioTrack? = null
         var focusRequested = false
+        var outcome = "error"
+        val started = System.currentTimeMillis()
+        synchronized(stateLock) { stopReason = null }
         try {
             val call = client.newCall(Request.Builder().url(SPEECH_URL + token).build())
             synchronized(stateLock) {
@@ -98,11 +103,13 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Speech not available: HTTP ${response.code}")
+                    outcome = "speech HTTP ${response.code}"
                     return
                 }
-                if (inCall(context)) return
+                if (inCall(context)) { outcome = "in a call (audio mode ${audio.mode})"; return }
                 if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                     Log.w(TAG, "Audio focus refused; not speaking")
+                    outcome = "audio focus refused"
                     return
                 }
                 focusRequested = true
@@ -128,17 +135,21 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     if (carry >= 0) { buffer[0] = carry.toByte(); len += 1; carry = -1 }
                     if (len % 2 == 1) { carry = buffer[len - 1].toInt() and 0xff; len -= 1 }
                     if (!isCurrent(jobGeneration)) break
-                    if (inCall(context)) { stopCurrent(context.applicationContext); break }
+                    if (inCall(context)) { stopCurrent(context.applicationContext, "call started (audio mode ${audio.mode})"); break }
                     if (len > 0) { track!!.write(buffer, 0, len); written += len }
                 }
                 val frames = (written / 2).toInt()
+                outcome = if (!isCurrent(jobGeneration)) "replaced by a newer push after ${frames / SAMPLE_RATE}s" else "spoken ${frames / SAMPLE_RATE}s, volume ${audio.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)}"
                 while (isCurrent(jobGeneration) && track!!.playbackHeadPosition < frames && track!!.playState == AudioTrack.PLAYSTATE_PLAYING) {
                     Thread.sleep(50)
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not speak push", e)
+            outcome = "error: ${e.javaClass.simpleName}: ${e.message}"
         } finally {
+            val stoppedBy = synchronized(stateLock) { stopReason }
+            report(token, if (stoppedBy != null) "stopped: $stoppedBy" else outcome, System.currentTimeMillis() - started)
             val releaseTrack: Boolean
             val abandonFocus: Boolean
             synchronized(stateLock) {
@@ -158,29 +169,48 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         }
     }
 
-    /** While speaking, the car's, headset's or watch's pause, stop or play/pause button stops it. */
+    /**
+     * While speaking, the car's, headset's or watch's pause, stop or play/pause button stops it.
+     * Not a "play", and nothing in the first second: a Bluetooth device answering a new session's
+     * "playing" with a play or pause would otherwise cut the speech off at once (2026-11-19).
+     */
     private fun startMediaSession(jobGeneration: Long) {
         val session = MediaSession(context.applicationContext, "infinity-speech")
+        val since = System.currentTimeMillis()
+        fun pressed(what: String) {
+            if (System.currentTimeMillis() - since < 1000) { Log.d(TAG, "Ignored $what in the first second"); return }
+            stopCurrent(context.applicationContext, "media button: $what")
+        }
         session.setCallback(object : MediaSession.Callback() {
-            override fun onPause() = stopCurrent(context.applicationContext)
-            override fun onStop() = stopCurrent(context.applicationContext)
-            override fun onPlay() = stopCurrent(context.applicationContext)
-            override fun onSkipToNext() = stopCurrent(context.applicationContext)
+            override fun onPause() = pressed("pause")
+            override fun onStop() = pressed("stop")
             override fun onMediaButtonEvent(intent: Intent): Boolean {
                 @Suppress("DEPRECATION")
-                val key = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-                if (key != null && key.action == KeyEvent.ACTION_DOWN) stopCurrent(context.applicationContext)
+                val key = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return true
+                if (key.action == KeyEvent.ACTION_DOWN && key.keyCode in setOf(KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_STOP,
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK)) pressed("key ${key.keyCode}")
                 return true
             }
         })
         session.setPlaybackState(PlaybackState.Builder()
-            .setActions(PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_STOP or
-                PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_PLAY or PlaybackState.ACTION_SKIP_TO_NEXT)
+            .setActions(PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_STOP or PlaybackState.ACTION_PLAY_PAUSE)
             .setState(PlaybackState.STATE_PLAYING, 0, 1f).build())
         session.isActive = true
         synchronized(stateLock) {
             if (jobGeneration != generation) { session.release(); return }
             currentSession = session
+        }
+    }
+
+    /** Tells infinity how the speech ended, so a silent failure can be seen (POST /speech/<token>/outcome). */
+    private fun report(token: String, outcome: String, ms: Long) {
+        runCatching {
+            val body = okhttp3.FormBody.Builder().add("outcome", outcome.take(300)).add("ms", ms.toString()).build()
+            client.newCall(Request.Builder().url(SPEECH_URL + token + "/outcome").post(body).build())
+                .enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: Call, e: java.io.IOException) {}
+                    override fun onResponse(call: Call, response: okhttp3.Response) { response.close() }
+                })
         }
     }
 
@@ -233,6 +263,8 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         private var currentAudio: AudioManager? = null
         private var currentFocus: AudioFocusRequest? = null
         private var currentSession: MediaSession? = null
+        /** Why the last speech was stopped from outside its loop (null: it ended by itself). */
+        private var stopReason: String? = null
         /** True while infinity speaks; every screen shows Stop while it is. */
         val speaking = MutableLiveData(false)
         private var stoppedTrack: AudioTrack? = null
@@ -241,8 +273,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS).build()
         /** Stop: ends what is playing and drops anything waiting. */
-        fun stopCurrent(context: Context) {
+        fun stopCurrent(context: Context, reason: String = "Stop tapped") {
             synchronized(stateLock) {
+                if (currentTrack != null || currentCall != null) stopReason = reason
                 generation++
                 stopLocked(context, true)
                 executor.queue.clear()
