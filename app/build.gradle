@@ -38,7 +38,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-watch1"
+            versionNameSuffix "-pebble-stop1"
             signingConfig signingConfigs.debug
         }
         debug {

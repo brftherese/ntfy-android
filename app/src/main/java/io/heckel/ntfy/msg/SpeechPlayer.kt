@@ -31,7 +31,8 @@ import java.util.concurrent.TimeUnit
  * of his phone line). It is played when headphones or a car are connected, or, for an
  * answer to his ring (tagged ring-voice), through the speaker as well. Do Not Disturb
  * and silent mode don't stop it: it plays as an assistant's voice, not a ringtone.
- * While speaking, an ongoing notification offers Stop. A newer push (including a
+ * While speaking (from the moment the audio is requested), an ongoing notification near
+ * the top of the shade, on the lock screen and the watch offers Stop; tapping it stops too. A newer push (including a
  * ring answer) stops and replaces the current speech; only the newest waiting push
  * is retained. A push older than two minutes is not spoken.
  */
@@ -76,6 +77,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 if (jobGeneration != generation) { call.cancel(); return }
                 currentCall = call
             }
+            showSpeaking(title, jobGeneration)
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Speech not available: HTTP ${response.code}")
@@ -93,7 +95,6 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     currentFocus = focus
                 }
                 track!!.play()
-                showSpeaking(title, jobGeneration)
                 val input = response.body.byteStream()
                 val buffer = ByteArray(8192)
                 var carry = -1 // PCM16: a read that ends mid-sample keeps its odd byte
@@ -141,7 +142,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(NotificationChannel(
-                SPEAKING_CHANNEL_ID, "Infinity speech", NotificationManager.IMPORTANCE_LOW
+                SPEAKING_CHANNEL_ID, "Infinity speech", NotificationManager.IMPORTANCE_DEFAULT
             ).apply { setSound(null, null); enableVibration(false) })
         }
         val stopIntent = Intent(context, SpeechStopReceiver::class.java).setAction(STOP_ACTION)
@@ -149,8 +150,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         manager.notify(SPEAKING_NOTIFICATION_ID, NotificationCompat.Builder(context, SPEAKING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification).setContentTitle("infinity is speaking")
-            .setContentText(title).setPriority(NotificationCompat.PRIORITY_LOW).setOngoing(true)
-            .setOnlyAlertOnce(true)
+            .setContentText("Tap to stop · $title").setPriority(NotificationCompat.PRIORITY_DEFAULT).setOngoing(true)
+            .setOnlyAlertOnce(true).setSilent(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(stopPendingIntent)
             .addAction(NotificationCompat.Action.Builder(0, "Stop", stopPendingIntent).build()).build())
         }
     }
@@ -166,7 +168,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         private const val SPEECH_URL = "https://infinity.frft.org/speech/"
         private const val SAMPLE_RATE = 24000
         private const val MAX_AGE_SECONDS = 120
-        private const val SPEAKING_CHANNEL_ID = "infinity_speaking"
+        private const val SPEAKING_CHANNEL_ID = "infinity_speaking_v2"
         private const val SPEAKING_NOTIFICATION_ID = 0x534
         // One playback for the whole app: the service, the main screen and the poll
         // worker each make their own dispatcher and so their own SpeechPlayer, so the
