@@ -23,9 +23,6 @@ import io.heckel.ntfy.util.*
 import java.util.*
 import androidx.core.net.toUri
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 class NotificationService(val context: Context) {
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -118,7 +115,6 @@ class NotificationService(val context: Context) {
         maybeSetSound(builder, insistent, update)
         maybeSetProgress(builder, notification)
         val wearableExtender = NotificationCompat.WearableExtender()
-        maybeAddWatchAction(wearableExtender, notification)
         maybeAddOpenAction(builder, wearableExtender, notification)
         maybeAddBrowseAction(builder, wearableExtender, notification)
         maybeAddDownloadAction(builder, wearableExtender, notification)
@@ -247,31 +243,6 @@ class NotificationService(val context: Context) {
         }
     }
 
-    /** Pebble build: this belongs on the watch notification only, not in ntfy's phone actions. */
-    private fun maybeAddWatchAction(wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
-        val token = splitTags(notification.tags)
-            .firstOrNull { it.startsWith(WATCH_PREFIX) }
-            ?.removePrefix(WATCH_PREFIX)
-            ?.takeIf { WATCH_TOKEN.matches(it) }
-            ?: return
-        val intent = Intent(context, UserActionBroadcastReceiver::class.java).apply {
-            putExtra(BROADCAST_EXTRA_TYPE, BROADCAST_TYPE_WATCH_ACTION)
-            putExtra(BROADCAST_EXTRA_TOKEN, token)
-            putExtra(BROADCAST_EXTRA_BASE_URL, notification.actions.orEmpty()
-                .asSequence()
-                .mapNotNull { it.url?.let(::extractBaseUrl)?.takeIf(String::isNotEmpty) }
-                .firstOrNull()
-                ?: WATCH_DEFAULT_BASE_URL)
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context, Random().nextInt(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        wearableExtender.addAction(NotificationCompat.Action.Builder(
-            0, context.getString(R.string.notification_popup_action_open_on_watch), pendingIntent
-        ).build())
-    }
-
     private fun maybeAddBrowseAction(builder: NotificationCompat.Builder, wearableExtender: NotificationCompat.WearableExtender, notification: Notification) {
         if (notification.attachment?.contentUri != null) {
             val intent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
@@ -397,36 +368,6 @@ class NotificationService(val context: Context) {
     class UserActionBroadcastReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val type = intent.getStringExtra(BROADCAST_EXTRA_TYPE) ?: return
-            if (type == BROADCAST_TYPE_WATCH_ACTION) {
-                val pendingResult = goAsync()
-                val token = intent.getStringExtra(BROADCAST_EXTRA_TOKEN)
-                val baseUrl = intent.getStringExtra(BROADCAST_EXTRA_BASE_URL)
-                    ?: WATCH_DEFAULT_BASE_URL
-                if (token == null) {
-                    pendingResult.finish()
-                    return
-                }
-                val app = context.applicationContext as? io.heckel.ntfy.app.Application
-                if (app == null) {
-                    PebbleWatchAction.start(context)
-                    pendingResult.finish()
-                    return
-                }
-                app.ioScope.launch {
-                    try {
-                        withTimeoutOrNull(WATCH_LAUNCH_DEADLINE_MS) {
-                            PebbleWatchAction.focus(context.applicationContext, baseUrl, token)
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not focus infinity approval on watch", e)
-                    } finally {
-                        // Launch even when focus failed or timed out: the watchapp can show its list.
-                        PebbleWatchAction.start(context.applicationContext)
-                        pendingResult.finish()
-                    }
-                }
-                return
-            }
             val notificationId = intent.getStringExtra(BROADCAST_EXTRA_NOTIFICATION_ID) ?: return
             when (type) {
                 BROADCAST_TYPE_DOWNLOAD_START -> DownloadManager.enqueue(context, notificationId, userAction = true, DownloadType.ATTACHMENT)
@@ -643,14 +584,6 @@ class NotificationService(val context: Context) {
         const val BROADCAST_TYPE_DOWNLOAD_START = "io.heckel.ntfy.DOWNLOAD_ACTION_START"
         const val BROADCAST_TYPE_DOWNLOAD_CANCEL = "io.heckel.ntfy.DOWNLOAD_ACTION_CANCEL"
         const val BROADCAST_TYPE_USER_ACTION = "io.heckel.ntfy.USER_ACTION_RUN"
-        const val BROADCAST_TYPE_WATCH_ACTION = "io.heckel.ntfy.WATCH_ACTION"
-        const val BROADCAST_EXTRA_TOKEN = "watchToken"
-        const val BROADCAST_EXTRA_BASE_URL = "watchBaseUrl"
-
-        private const val WATCH_PREFIX = "watch-"
-        private val WATCH_TOKEN = Regex("[A-Za-z0-9_-]{20,40}")
-        private const val WATCH_DEFAULT_BASE_URL = "https://infinity.frft.org"
-        private const val WATCH_LAUNCH_DEADLINE_MS = 3_000L
 
         private const val TAG = "NtfyNotifService"
 
@@ -667,28 +600,4 @@ class NotificationService(val context: Context) {
         private const val VIEW_ACTION_EXTRA_SUBSCRIPTION_ID = "subscriptionId"
         private const val VIEW_ACTION_EXTRA_SEQUENCE_ID = "sequenceId"
     }
-}
-
-/** The phone-side half of infinity's Pebble approval deep link. */
-private object PebbleWatchAction {
-
-    suspend fun focus(context: Context, baseUrl: String, token: String) {
-        val url = baseUrl.trimEnd('/') + "/watch/focus/" + token
-        val client = HttpUtil.defaultClient(context, baseUrl).newBuilder()
-            .callTimeout(2_500, TimeUnit.MILLISECONDS)
-            .build()
-        val request = HttpUtil.requestBuilder(url).post("".toRequestBody()).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${response.code}")
-            }
-        }
-    }
-
-    // Test (2026-11-19): Play Protect has blocked every build since the Pebble launch
-    // broadcast (com.getpebble…START, uuid extra) arrived, so it is out of the APK
-    // entirely, string and all. Open on watch still sets the focus, so the item is first
-    // when he opens infinity on the watch himself. Restore from git (37f77ac3) if cleared.
-    @Suppress("UNUSED_PARAMETER")
-    fun start(context: Context) {}
 }
