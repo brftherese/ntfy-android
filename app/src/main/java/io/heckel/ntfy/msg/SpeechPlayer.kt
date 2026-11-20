@@ -123,7 +123,12 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     currentFocus = focus
                 }
                 track!!.play()
-                startMediaSession(jobGeneration)
+                // A MediaSession needs a Looper: made on the playback thread, it threw and every
+                // spoken answer went silent (own4, 2026-11-19). It is made on the main thread, and
+                // if it fails the speech goes on without it.
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    runCatching { startMediaSession(jobGeneration) }.onFailure { Log.w(TAG, "No media session", it) }
+                }
                 val input = response.body.byteStream()
                 val buffer = ByteArray(8192)
                 var carry = -1 // PCM16: a read that ends mid-sample keeps its odd byte
@@ -197,7 +202,8 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             .setState(PlaybackState.STATE_PLAYING, 0, 1f).build())
         session.isActive = true
         synchronized(stateLock) {
-            if (jobGeneration != generation) { session.release(); return }
+            // Made a moment later on the main thread: keep it only while that speech still plays.
+            if (jobGeneration != generation || currentTrack == null) { runCatching { session.isActive = false }; session.release(); return }
             currentSession = session
         }
     }
