@@ -32,14 +32,30 @@ android {
         }
     }
 
+    signingConfigs {
+        pebble {
+            def f = file(System.getProperty("user.home") + "/.android-keys/ntfy-pebble.properties")
+            if (f.exists()) {
+                def p = new Properties()
+                f.withInputStream { p.load(it) }
+                storeFile file(p.storeFile)
+                storePassword p.storePassword
+                keyAlias p.keyAlias
+                keyPassword p.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-stop2"
-            signingConfig signingConfigs.debug
+            versionNameSuffix "-pebble-own1"
+            // His own key (kept outside the repo): the generic Android Debug certificate,
+            // with the ability to install .apk attachments, is what Play Protect flagged.
+            signingConfig file(System.getProperty("user.home") + "/.android-keys/ntfy-pebble.properties").exists() ? signingConfigs.pebble : signingConfigs.debug
         }
         debug {
             minifyEnabled false
