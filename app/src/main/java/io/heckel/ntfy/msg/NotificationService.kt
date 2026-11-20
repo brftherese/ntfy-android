@@ -671,9 +671,6 @@ class NotificationService(val context: Context) {
 
 /** The phone-side half of infinity's Pebble approval deep link. */
 private object PebbleWatchAction {
-    private const val START_ACTION = "com.getpebble.action.app.START"
-    private const val UUID_EXTRA = "uuid"
-    private val WATCH_UUID = UUID.fromString("d84728c8-1afc-41d4-a565-d95a18d0f0be")
 
     suspend fun focus(context: Context, baseUrl: String, token: String) {
         val url = baseUrl.trimEnd('/') + "/watch/focus/" + token
@@ -688,13 +685,10 @@ private object PebbleWatchAction {
         }
     }
 
-    fun start(context: Context) {
-        val intent = Intent(START_ACTION).putExtra(UUID_EXTRA, WATCH_UUID)
-        // This is the documented PebbleKit Android broadcast. Core Devices' app may
-        // accept it as compatibility support; its public docs do not currently promise that.
-        // Core's app (libpebble3 PebbleKitClassicStartListeners) registers an exported
-        // receiver for this action, so the plain broadcast reaches it. A second copy aimed
-        // at its package was dropped: redundant, and a possible Play Protect trigger.
-        runCatching { context.sendBroadcast(intent) }
-    }
+    // Test (2026-11-19): Play Protect has blocked every build since the Pebble launch
+    // broadcast (com.getpebble…START, uuid extra) arrived, so it is out of the APK
+    // entirely, string and all. Open on watch still sets the focus, so the item is first
+    // when he opens infinity on the watch himself. Restore from git (37f77ac3) if cleared.
+    @Suppress("UNUSED_PARAMETER")
+    fun start(context: Context) {}
 }
