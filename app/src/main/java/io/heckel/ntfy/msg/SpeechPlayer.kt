@@ -11,6 +11,10 @@ import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
+import android.view.KeyEvent
+import androidx.lifecycle.MutableLiveData
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import io.heckel.ntfy.R
@@ -35,6 +39,12 @@ import java.util.concurrent.TimeUnit
  * the top of the shade, on the lock screen and the watch offers Stop; tapping it stops too. A newer push (including a
  * ring answer) stops and replaces the current speech; only the newest waiting push
  * is retained. A push older than two minutes is not spoken.
+ *
+ * Stopping must never need the shade (the owner, 2026-11-19: on a call while driving,
+ * the only way out was force-closing the app). So: nothing is spoken during a phone
+ * or video call; a call, or any app taking the audio, stops it; the car's, headset's
+ * or watch's pause/stop media button stops it (a MediaSession while speaking); and
+ * every screen of the app shows a large Stop button while it speaks (SpeechStopOverlay).
  */
 class SpeechPlayer(private val context: Context, private val repository: Repository) {
     fun maybeSpeak(notification: Notification) {
@@ -44,6 +54,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         if (System.currentTimeMillis() / 1000 - notification.timestamp > MAX_AGE_SECONDS) return
         val ring = tags.contains(RING_TAG) && repository.getSpeakRingAloudEnabled()
         if (!ring && !listening()) return
+        if (inCall(context)) return
         synchronized(stateLock) {
             generation++
             stopCurrentLocked(removeNotification = false)
@@ -63,8 +74,14 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        // A call or another app taking the audio ends the speech; it is never resumed.
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            .setAudioAttributes(attributes).build()
+            .setAudioAttributes(attributes)
+            .setOnAudioFocusChangeListener { change ->
+                if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                    if (isCurrent(jobGeneration)) stopCurrent(context.applicationContext)
+                }
+            }.build()
         val format = AudioFormat.Builder().setSampleRate(SAMPLE_RATE)
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT).build()
@@ -83,7 +100,11 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     Log.w(TAG, "Speech not available: HTTP ${response.code}")
                     return
                 }
-                audio.requestAudioFocus(focus)
+                if (inCall(context)) return
+                if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    Log.w(TAG, "Audio focus refused; not speaking")
+                    return
+                }
                 focusRequested = true
                 track = AudioTrack.Builder().setAudioAttributes(attributes).setAudioFormat(format)
                     .setBufferSizeInBytes(maxOf(minBuffer, SAMPLE_RATE))
@@ -95,6 +116,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     currentFocus = focus
                 }
                 track!!.play()
+                startMediaSession(jobGeneration)
                 val input = response.body.byteStream()
                 val buffer = ByteArray(8192)
                 var carry = -1 // PCM16: a read that ends mid-sample keeps its odd byte
@@ -105,6 +127,8 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                     var len = n
                     if (carry >= 0) { buffer[0] = carry.toByte(); len += 1; carry = -1 }
                     if (len % 2 == 1) { carry = buffer[len - 1].toInt() and 0xff; len -= 1 }
+                    if (!isCurrent(jobGeneration)) break
+                    if (inCall(context)) { stopCurrent(context.applicationContext); break }
                     if (len > 0) { track!!.write(buffer, 0, len); written += len }
                 }
                 val frames = (written / 2).toInt()
@@ -124,11 +148,39 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 if (stoppedFocus === focus) stoppedFocus = null
                 if (jobGeneration == generation) {
                     currentCall = null; currentTrack = null; currentAudio = null; currentFocus = null
+                    currentSession?.let { runCatching { it.isActive = false; it.release() } }
+                    currentSession = null
                     removeSpeakingNotification()
                 }
             }
             if (releaseTrack) track?.let { runCatching { it.stop() }; it.release() }
             if (focusRequested && abandonFocus) audio.abandonAudioFocusRequest(focus)
+        }
+    }
+
+    /** While speaking, the car's, headset's or watch's pause, stop or play/pause button stops it. */
+    private fun startMediaSession(jobGeneration: Long) {
+        val session = MediaSession(context.applicationContext, "infinity-speech")
+        session.setCallback(object : MediaSession.Callback() {
+            override fun onPause() = stopCurrent(context.applicationContext)
+            override fun onStop() = stopCurrent(context.applicationContext)
+            override fun onPlay() = stopCurrent(context.applicationContext)
+            override fun onSkipToNext() = stopCurrent(context.applicationContext)
+            override fun onMediaButtonEvent(intent: Intent): Boolean {
+                @Suppress("DEPRECATION")
+                val key = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                if (key != null && key.action == KeyEvent.ACTION_DOWN) stopCurrent(context.applicationContext)
+                return true
+            }
+        })
+        session.setPlaybackState(PlaybackState.Builder()
+            .setActions(PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_STOP or
+                PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_PLAY or PlaybackState.ACTION_SKIP_TO_NEXT)
+            .setState(PlaybackState.STATE_PLAYING, 0, 1f).build())
+        session.isActive = true
+        synchronized(stateLock) {
+            if (jobGeneration != generation) { session.release(); return }
+            currentSession = session
         }
     }
 
@@ -139,6 +191,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
     private fun showSpeaking(title: String, jobGeneration: Long) {
         synchronized(stateLock) {
             if (jobGeneration != generation) return
+            speaking.postValue(true)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(NotificationChannel(
@@ -179,6 +232,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         private var currentTrack: AudioTrack? = null
         private var currentAudio: AudioManager? = null
         private var currentFocus: AudioFocusRequest? = null
+        private var currentSession: MediaSession? = null
+        /** True while infinity speaks; every screen shows Stop while it is. */
+        val speaking = MutableLiveData(false)
         private var stoppedTrack: AudioTrack? = null
         private var stoppedFocus: AudioFocusRequest? = null
         private val executor = ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue())
@@ -207,13 +263,23 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 audio.abandonAudioFocusRequest(it)
             } }
             currentAudio = null; currentFocus = null
+            currentSession?.let { runCatching { it.isActive = false; it.release() } }
+            currentSession = null
             if (removeNotification) removeSpeaking(context)
         }
 
         private fun removeSpeaking(context: Context) {
+            speaking.postValue(false)
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(SPEAKING_NOTIFICATION_ID)
         }
+        /** A phone call, a video or voice call in any app, or a call ringing. */
+        fun inCall(context: Context): Boolean {
+            val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            return audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_IN_COMMUNICATION ||
+                audio.mode == AudioManager.MODE_RINGTONE || audio.mode == AudioManager.MODE_CALL_SCREENING
+        }
+
         private val PRIVATE_OUTPUTS = setOf(
             AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,

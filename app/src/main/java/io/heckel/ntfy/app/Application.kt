@@ -29,6 +29,7 @@ class Application : Application() {
             DynamicColors.applyToActivitiesIfAvailable(this)
         }
         registerNetworkCallback()
+        io.heckel.ntfy.msg.SpeechStopOverlay.install(this)
     }
 
     private fun registerNetworkCallback() {
