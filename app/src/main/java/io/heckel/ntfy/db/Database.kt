@@ -637,13 +637,14 @@ interface NotificationDao {
     @Query("UPDATE notification SET deleted = 1 WHERE subscriptionId = :subscriptionId")
     fun markAllAsDeleted(subscriptionId: Long)
 
-    @Query("UPDATE notification SET deleted = 1 WHERE subscriptionId = :subscriptionId AND timestamp < :olderThanTimestamp")
+    // Pebble build: a card waiting on his decision (tag keep-waiting) is never aged out; infinity withdraws it once settled.
+    @Query("UPDATE notification SET deleted = 1 WHERE subscriptionId = :subscriptionId AND timestamp < :olderThanTimestamp AND (',' || tags || ',') NOT LIKE '%,keep-waiting,%'")
     fun markAsDeletedIfOlderThan(subscriptionId: Long, olderThanTimestamp: Long)
 
     @Query("UPDATE notification SET deleted = 0 WHERE id = :notificationId")
     fun undelete(notificationId: String)
 
-    @Query("DELETE FROM notification WHERE subscriptionId = :subscriptionId AND timestamp < :olderThanTimestamp")
+    @Query("DELETE FROM notification WHERE subscriptionId = :subscriptionId AND timestamp < :olderThanTimestamp AND (',' || tags || ',') NOT LIKE '%,keep-waiting,%'")
     fun removeIfOlderThan(subscriptionId: Long, olderThanTimestamp: Long)
 
     @Query("DELETE FROM notification WHERE subscriptionId = :subscriptionId")

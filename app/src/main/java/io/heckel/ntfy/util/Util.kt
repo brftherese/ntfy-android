@@ -179,7 +179,7 @@ fun unmatchedTags(tags: List<String>): List<String> {
     return tags.filter { tag -> toEmoji(tag) == null && !SpeechPlayer.isSpeechTag(tag) && !isWatchTag(tag) }
 }
 
-private fun isWatchTag(tag: String): Boolean = tag.startsWith("watch-")
+private fun isWatchTag(tag: String): Boolean = tag.startsWith("watch-") || tag == "keep-waiting" // Pebble build: hidden markers
 
 /**
  * Prepend tags/emojis to message, but only if there is a non-empty title.
