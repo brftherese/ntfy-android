@@ -180,15 +180,17 @@ class ListenActivity : Activity() {
         runCatching { recognizer?.destroy() }
         releaseMic()
         releaseFocus()
-        // What the speech paused (the Office, a book) goes on once he has answered.
-        io.heckel.ntfy.player.PlayerService.resumeAfterSpeech()
+        // What the speech paused (the Office, a book) goes on once he has answered, unless a newer push is speaking.
+        if (!replacedBySpeech) SpeechPlayer.resumeAfter(applicationContext)
         super.onDestroy()
     }
 
     /** A newer push to read aloud: stop listening at once (the microphone's call mode would keep it silent). */
+    private var replacedBySpeech = false
     private fun cancelForSpeech() {
         if (done) return
         done = true
+        replacedBySpeech = true
         runCatching { recognizer?.cancel() }
         releaseMic()
         finish()

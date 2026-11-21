@@ -105,6 +105,14 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 currentCall = call
             }
             showSpeaking(title, jobGeneration)
+            // Whatever else is playing is paused outright, as his headset's button would, since an app may ignore the
+            // focus request (ElevenReader kept reading under the speech, 2026-11-21); it is played again afterwards
+            // only if this paused it.
+            if (audio.isMusicActive) {
+                mediaKey(audio, KeyEvent.KEYCODE_MEDIA_PAUSE)
+                synchronized(stateLock) { pausedOthers = true }
+                Thread.sleep(300)
+            }
             PlayerService.pauseForSpeech()
             call.execute().use { response ->
                 if (!response.isSuccessful) {
@@ -180,10 +188,12 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             // stays paused until he has answered, so the microphone doesn't hear his book come back.
             val listen = notification != null && stoppedBy == null && outcome.startsWith("spoken") && isCurrent(jobGeneration)
             if (focusRequested && abandonFocus) { if (listen) ListenActivity.holdFocus(audio, focus) else audio.abandonAudioFocusRequest(focus) }
+            // Replaced by a newer push: that one speaks now, so nothing resumes yet.
+            val superseded = synchronized(stateLock) { jobGeneration != generation && executor.queue.isNotEmpty() }
             if (listen) android.os.Handler(android.os.Looper.getMainLooper()).post {
                 val started = runCatching { ListenActivity.maybeListen(context.applicationContext, notification!!) }.onFailure { Log.w(TAG, "Could not listen", it) }.getOrDefault(false)
-                if (!started) { ListenActivity.releaseFocus(); PlayerService.resumeAfterSpeech() }
-            } else PlayerService.resumeAfterSpeech()
+                if (!started) { ListenActivity.releaseFocus(); resumeAfter(context.applicationContext) }
+            } else if (!superseded) resumeAfter(context.applicationContext)
         }
     }
 
@@ -325,6 +335,23 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(SPEAKING_NOTIFICATION_ID)
         }
+        /** Whether this speech paused another app's audio (played again by resumeAfter). */
+        private var pausedOthers = false
+        private fun mediaKey(audio: AudioManager, code: Int) {
+            runCatching {
+                audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+                audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+            }.onFailure { Log.w(TAG, "Media key $code not sent", it) }
+        }
+        /** After speaking, and after listening for his answer: what was paused for it plays again. */
+        fun resumeAfter(context: Context) {
+            PlayerService.resumeAfterSpeech()
+            val wasPaused = synchronized(stateLock) { pausedOthers.also { pausedOthers = false } }
+            if (!wasPaused) return
+            val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (!audio.isMusicActive && !inCall(context)) mediaKey(audio, KeyEvent.KEYCODE_MEDIA_PLAY)
+        }
+
         /** A real phone call (or one ringing), not the listening screen's own call mode. */
         fun ringingOrInCall(context: Context): Boolean {
             val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
