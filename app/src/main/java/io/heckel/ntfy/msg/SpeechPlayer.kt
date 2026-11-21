@@ -61,7 +61,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             stopCurrentLocked(removeNotification = false)
             executor.queue.clear()
             val jobGeneration = generation
-            executor.execute { play(token, jobGeneration, notification.title) }
+            executor.execute { play(token, jobGeneration, notification.title, notification) }
         }
     }
 
@@ -71,7 +71,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         return audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in PRIVATE_OUTPUTS }
     }
 
-    private fun play(token: String, jobGeneration: Long, title: String) {
+    private fun play(token: String, jobGeneration: Long, title: String, notification: Notification? = null) {
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
@@ -173,7 +173,11 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             }
             if (releaseTrack) track?.let { runCatching { it.stop() }; it.release() }
             if (focusRequested && abandonFocus) audio.abandonAudioFocusRequest(focus)
-            PlayerService.resumeAfterSpeech()
+            // Read to the end, not stopped or replaced: a card tagged listen hears his answer (ListenActivity).
+            val listen = notification != null && stoppedBy == null && outcome.startsWith("spoken") && isCurrent(jobGeneration)
+            if (listen) android.os.Handler(android.os.Looper.getMainLooper()).post {
+                runCatching { ListenActivity.maybeListen(context.applicationContext, notification!!) }.onFailure { Log.w(TAG, "Could not listen", it) }
+            } else PlayerService.resumeAfterSpeech()
         }
     }
 
@@ -330,6 +334,6 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             27, // TYPE_BLE_SPEAKER (API 31)
         )
         /** Tags that only steer the speech, never shown. */
-        fun isSpeechTag(tag: String) = tag.startsWith(SPEAK_PREFIX) || tag == RING_TAG
+        fun isSpeechTag(tag: String) = tag.startsWith(SPEAK_PREFIX) || tag == RING_TAG || ListenActivity.isListenTag(tag)
     }
 }

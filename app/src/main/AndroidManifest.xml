@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/> <!-- To reschedule the websocket retry -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/> <!-- As of Android 13, we need to ask for permission to post notifications -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/> <!-- Allows to ignore battery optimization without going to the settings -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/> <!-- infinity: a spoken answer to a card tagged listen (ListenActivity) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/> <!-- infinity: opening the listening screen from the background -->
 
     <!-- UnifiedPush "raise to foreground" requirement, see https://unifiedpush.org/developers/spec/android/#service-to-raise-to-the-foreground -->
     <queries>
@@ -45,6 +47,9 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".msg.ListenActivity" android:exported="false" android:excludeFromRecents="true"
+                android:showWhenLocked="true" android:turnScreenOn="true" android:launchMode="singleTop"
+                android:theme="@android:style/Theme.Black.NoTitleBar" android:taskAffinity="io.heckel.ntfy.listen" />
         <!-- Exported only to the shell (DUMP), so infinity can open it through Shizuku to check it. -->
         <activity android:name=".player.NowPlayingActivity" android:exported="true" android:permission="android.permission.DUMP" />
         <service android:name=".player.PlayerService" android:foregroundServiceType="mediaPlayback" android:exported="true">
