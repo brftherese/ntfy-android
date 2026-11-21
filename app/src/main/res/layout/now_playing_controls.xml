@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The title, seek bar and every control: shared by the portrait and landscape Now Playing screens. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView android:id="@+id/np_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceHeadlineSmall" android:textColor="?attr/colorOnSurface"
+        android:maxLines="2" android:ellipsize="end"/>
+    <TextView android:id="@+id/np_state" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:textColor="?attr/colorOnSurfaceVariant"/>
+
+    <com.google.android.material.slider.Slider android:id="@+id/np_seek"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:valueFrom="0" android:valueTo="1"
+        android:contentDescription="Position in the recording"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="16dp">
+        <TextView android:id="@+id/np_at" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceLabelLarge" android:textColor="?attr/colorOnSurfaceVariant"/>
+        <TextView android:id="@+id/np_length" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:gravity="end" android:textAppearance="?attr/textAppearanceLabelLarge" android:textColor="?attr/colorOnSurfaceVariant"/>
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:gravity="center" android:orientation="horizontal">
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center_horizontal">
+            <com.google.android.material.button.MaterialButton android:id="@+id/np_back30"
+                style="?attr/materialIconButtonStyle" android:layout_width="72dp" android:layout_height="72dp"
+                android:contentDescription="Back 30 seconds" app:icon="@drawable/media3_icon_rewind" app:iconSize="40dp"
+                app:iconTint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="-8dp"
+                android:text="−30 s" android:importantForAccessibility="no"
+                android:textAppearance="?attr/textAppearanceLabelLarge" android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+        <com.google.android.material.button.MaterialButton android:id="@+id/np_play"
+            android:layout_width="96dp" android:layout_height="96dp" android:layout_marginHorizontal="28dp"
+            android:insetTop="0dp" android:insetBottom="0dp" android:padding="0dp"
+            android:contentDescription="Play" app:icon="@drawable/media3_icon_play" app:iconSize="44dp"
+            app:iconGravity="textStart" app:iconPadding="0dp" app:cornerRadius="48dp"/>
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center_horizontal">
+            <com.google.android.material.button.MaterialButton android:id="@+id/np_fwd30"
+                style="?attr/materialIconButtonStyle" android:layout_width="72dp" android:layout_height="72dp"
+                android:contentDescription="Forward 30 seconds" app:icon="@drawable/media3_icon_fast_forward" app:iconSize="40dp"
+                app:iconTint="?attr/colorOnSurface"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="-8dp"
+                android:text="+30 s" android:importantForAccessibility="no"
+                android:textAppearance="?attr/textAppearanceLabelLarge" android:textColor="?attr/colorOnSurfaceVariant"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="16dp" android:orientation="horizontal">
+        <com.google.android.material.button.MaterialButton android:id="@+id/np_back10" style="@style/Widget.Material3.Button.TonalButton" android:maxLines="1" android:paddingHorizontal="0dp" android:minHeight="52dp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginEnd="6dp" android:text="−10 s"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/np_back2m" style="@style/Widget.Material3.Button.TonalButton" android:maxLines="1" android:paddingHorizontal="0dp" android:minHeight="52dp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginEnd="6dp" android:text="−2 min"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/np_fwd2m" style="@style/Widget.Material3.Button.TonalButton" android:maxLines="1" android:paddingHorizontal="0dp" android:minHeight="52dp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginEnd="6dp" android:text="+2 min"/>
+        <com.google.android.material.button.MaterialButton android:id="@+id/np_fwd5m" style="@style/Widget.Material3.Button.TonalButton" android:maxLines="1" android:paddingHorizontal="0dp" android:minHeight="52dp"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="+5 min"/>
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton android:id="@+id/np_stop" style="@style/Widget.Material3.Button.TextButton.Icon"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp" android:text="Stop · keeps your place" app:icon="@drawable/media3_icon_stop"/>
+</LinearLayout>

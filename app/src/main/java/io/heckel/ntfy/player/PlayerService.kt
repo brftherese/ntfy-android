@@ -114,12 +114,13 @@ class PlayerService : MediaSessionService() {
         })
         val openNowPlaying = PendingIntent.getActivity(this, 0, Intent(this, NowPlayingActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        // Back 30 and forward 30 in the lock screen's and shade's back and forward slots. They must be
+        // Back 30 and forward 30 (⏪ ⏩: the circular 30-second arrows looked like two rewinds, the owner
+        // 2026-11-21: "why only rewind buttons?") in the lock screen's and shade's back and forward slots. They must be
         // custom session commands (Android's media controls show only those as extra buttons), and
         // previous/next are withheld so those slots go to them (one recording has no other track).
-        val back = CommandButton.Builder(CommandButton.ICON_SKIP_BACK_30).setDisplayName("Back 30 seconds")
+        val back = CommandButton.Builder(CommandButton.ICON_REWIND).setDisplayName("Back 30 seconds")
             .setSessionCommand(BACK_30).setSlots(CommandButton.SLOT_BACK).build()
-        val forward = CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_30).setDisplayName("Forward 30 seconds")
+        val forward = CommandButton.Builder(CommandButton.ICON_FAST_FORWARD).setDisplayName("Forward 30 seconds")
             .setSessionCommand(FORWARD_30).setSlots(CommandButton.SLOT_FORWARD).build()
         val buttons = listOf(back, forward)
         session = MediaSession.Builder(this, player)

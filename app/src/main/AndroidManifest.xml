@@ -45,7 +45,8 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".player.NowPlayingActivity" android:exported="false" />
+        <!-- Exported only to the shell (DUMP), so infinity can open it through Shizuku to check it. -->
+        <activity android:name=".player.NowPlayingActivity" android:exported="true" android:permission="android.permission.DUMP" />
         <service android:name=".player.PlayerService" android:foregroundServiceType="mediaPlayback" android:exported="true">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
