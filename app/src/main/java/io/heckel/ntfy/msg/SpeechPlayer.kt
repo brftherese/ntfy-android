@@ -55,6 +55,8 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         if (System.currentTimeMillis() / 1000 - notification.timestamp > MAX_AGE_SECONDS) return
         val ring = tags.contains(RING_TAG) && repository.getSpeakRingAloudEnabled()
         if (!ring && !listening()) return
+        // A listening screen holds the microphone in call mode: it gives way first, or this would never be spoken.
+        ListenActivity.stopForSpeech()
         if (inCall(context)) return
         synchronized(stateLock) {
             generation++
@@ -318,6 +320,11 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             speaking.postValue(false)
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(SPEAKING_NOTIFICATION_ID)
+        }
+        /** A real phone call (or one ringing), not the listening screen's own call mode. */
+        fun ringingOrInCall(context: Context): Boolean {
+            val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            return audio.mode == AudioManager.MODE_IN_CALL || audio.mode == AudioManager.MODE_RINGTONE || audio.mode == AudioManager.MODE_CALL_SCREENING
         }
         /** A phone call, a video or voice call in any app, or a call ringing. */
         fun inCall(context: Context): Boolean {

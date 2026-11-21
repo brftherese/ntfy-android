@@ -47,6 +47,7 @@ class ListenActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        active = this
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) { setShowWhenLocked(true); setTurnScreenOn(true) }
         else @Suppress("DEPRECATION") window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -94,7 +95,8 @@ class ListenActivity : Activity() {
         if (!routed || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         routed = false
         val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        runCatching { audio.clearCommunicationDevice(); audio.mode = modeBefore }
+        // Only our own change is undone: a phone call that began meanwhile keeps its audio.
+        runCatching { audio.clearCommunicationDevice(); if (audio.mode == AudioManager.MODE_IN_COMMUNICATION && !SpeechPlayer.ringingOrInCall(this)) audio.mode = modeBefore }
     }
 
     private fun listen() {
@@ -173,6 +175,7 @@ class ListenActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (active === this) active = null
         main.removeCallbacksAndMessages(null)
         runCatching { recognizer?.destroy() }
         releaseMic()
@@ -181,8 +184,28 @@ class ListenActivity : Activity() {
         super.onDestroy()
     }
 
+    /** A newer push to read aloud: stop listening at once (the microphone's call mode would keep it silent). */
+    private fun cancelForSpeech() {
+        if (done) return
+        done = true
+        runCatching { recognizer?.cancel() }
+        releaseMic()
+        finish()
+    }
+
     companion object {
         private const val TAG = "NtfyListen"
+        @Volatile private var active: ListenActivity? = null
+        /** Called before a push is read aloud: a listening screen gives way to it. */
+        fun stopForSpeech() {
+            val a = active ?: return
+            // The audio mode must be back before the speech checks for a call: done here on the main thread, else
+            // waited for (half a second at most).
+            if (Looper.myLooper() == Looper.getMainLooper()) { runCatching { a.cancelForSpeech() }; return }
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(Looper.getMainLooper()).post { runCatching { a.cancelForSpeech() }; latch.countDown() }
+            latch.await(500, TimeUnit.MILLISECONDS)
+        }
         const val LISTEN_TAG = "listen"
         private const val EXTRA_URL = "url"
         private const val EXTRA_HEADERS = "headers"
