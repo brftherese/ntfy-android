@@ -162,6 +162,16 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 while (isCurrent(jobGeneration) && track!!.playbackHeadPosition < frames && track!!.playState == AudioTrack.PLAYSTATE_PLAYING) {
                     Thread.sleep(50)
                 }
+                // Over Bluetooth the last words are still in the car's or headset's buffer when the phone has handed
+                // them over, and turning its microphone on for the answer cut them off (the owner, 2026-11-21: "the
+                // end of the audio responses seem to get clipped"). Wait until they have been played out, as the
+                // track's timestamp reports, and then a margin, since cars report their delay poorly.
+                if (isCurrent(jobGeneration) && overBluetooth(track!!)) {
+                    val ts = android.media.AudioTimestamp()
+                    val until = System.currentTimeMillis() + 2_000
+                    while (isCurrent(jobGeneration) && System.currentTimeMillis() < until && !(track!!.getTimestamp(ts) && ts.framePosition >= frames)) Thread.sleep(50)
+                    if (isCurrent(jobGeneration)) Thread.sleep(BLUETOOTH_TAIL_MS)
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not speak push", e)
@@ -334,6 +344,11 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             speaking.postValue(false)
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(SPEAKING_NOTIFICATION_ID)
+        }
+        private const val BLUETOOTH_TAIL_MS = 600L
+        private fun overBluetooth(track: AudioTrack): Boolean {
+            val type = runCatching { track.routedDevice?.type }.getOrNull() ?: return false
+            return type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || type == 26 || type == 27 || type == 30 /* BLE broadcast */
         }
         /** Whether this speech paused another app's audio (played again by resumeAfter). */
         private var pausedOthers = false
