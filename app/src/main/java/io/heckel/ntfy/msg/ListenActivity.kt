@@ -135,13 +135,29 @@ class ListenActivity : Activity() {
         done = true
         releaseMic()
         status.text = "“$said”"
-        val url = intent.getStringExtra(EXTRA_URL) ?: return finishQuietly("no reply URL")
+        val url = intent.getStringExtra(EXTRA_URL)
         val headers = (intent.getStringArrayExtra(EXTRA_HEADERS) ?: emptyArray()).toList()
+        val subscriptionId = intent.getLongExtra(EXTRA_SUBSCRIPTION, -1L)
+        if (url == null && subscriptionId < 0) return finishQuietly("nowhere to send it")
         Thread {
             val ok = runCatching {
-                val req = Request.Builder().url(url).post(said.toRequestBody("text/plain; charset=utf-8".toMediaType()))
-                headers.chunked(2).forEach { if (it.size == 2) req.header(it[0], it[1]) }
-                client.newCall(req.build()).execute().use { it.isSuccessful }
+                if (url != null) {
+                    val req = Request.Builder().url(url).post(said.toRequestBody("text/plain; charset=utf-8".toMediaType()))
+                    headers.chunked(2).forEach { if (it.size == 2) req.header(it[0], it[1]) }
+                    client.newCall(req.build()).execute().use { it.isSuccessful }
+                } else {
+                    // Any other card: his words go to his line as his own message, saying which card they answer.
+                    // Never to that card's own Reply, which may send a text to someone (only listen cards use theirs).
+                    val repository = io.heckel.ntfy.db.Repository.getInstance(applicationContext)
+                    val subscription = repository.getSubscription(subscriptionId) ?: error("no subscription")
+                    kotlinx.coroutines.runBlocking {
+                        val user = repository.getUser(subscription.baseUrl)
+                        ApiService(applicationContext).publish(subscription.baseUrl, subscription.topic, user, said,
+                            title = "About: ${intent.getStringExtra(EXTRA_TITLE).orEmpty()}".take(200),
+                            tags = listOf(SPOKEN_ANSWER_TAG, ANSWER_PREFIX + intent.getStringExtra(EXTRA_SEQUENCE).orEmpty()))
+                    }
+                    true
+                }
             }.getOrElse { Log.w(TAG, "Spoken answer not sent", it); false }
             main.post { status.text = if (ok) "Sent: “$said”" else "Couldn't send it" }
             main.postDelayed({ finish() }, if (ok) 1_500 else 3_000)
@@ -171,28 +187,42 @@ class ListenActivity : Activity() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_HEADERS = "headers"
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_SUBSCRIPTION = "subscription"
+        private const val EXTRA_SEQUENCE = "sequence"
+        const val SPOKEN_ANSWER_TAG = "spoken-answer"
+        const val ANSWER_PREFIX = "answer-"
         private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
 
-        /** The Reply this push's spoken answer goes to, if it is tagged listen and has one. */
+        /** The Reply this push's spoken answer goes to: only a push infinity tagged listen uses its own. */
         private fun replyOf(notification: Notification): Action? {
             if (!splitTags(notification.tags).contains(LISTEN_TAG)) return null
             return notification.actions?.firstOrNull { NotificationService.isReplyHttpAction(it) && !it.url.isNullOrBlank() }
         }
 
-        /** After SpeechPlayer has read a listen card aloud to the end. */
+        /**
+         * After SpeechPlayer has read a push aloud to the end, it listens for his answer, whatever the push (the owner,
+         * 2026-11-21: "whenever a notification is read aloud it should listen for a spoken response"). A listen push's
+         * answer goes to its Reply; any other's goes to his line as his message, naming the push it answers.
+         */
         fun maybeListen(context: Context, notification: Notification) {
-            val reply = replyOf(notification) ?: return
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
                 Log.w(TAG, "Cannot open the listening screen from the background: display over other apps is off")
                 return
             }
-            val headers = (reply.headers ?: emptyMap()).filterKeys { !it.equals(NotificationService.HEADER_NTFY_INPUT, ignoreCase = true) }
-                .flatMap { listOf(it.key, it.value) }.toTypedArray()
-            context.startActivity(Intent(context, ListenActivity::class.java)
+            val reply = replyOf(notification)
+            val intent = Intent(context, ListenActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-                .putExtra(EXTRA_URL, reply.url).putExtra(EXTRA_HEADERS, headers).putExtra(EXTRA_TITLE, notification.title))
+                .putExtra(EXTRA_TITLE, notification.title.ifBlank { "infinity" })
+            if (reply != null) {
+                val headers = (reply.headers ?: emptyMap()).filterKeys { !it.equals(NotificationService.HEADER_NTFY_INPUT, ignoreCase = true) }
+                    .flatMap { listOf(it.key, it.value) }.toTypedArray()
+                intent.putExtra(EXTRA_URL, reply.url).putExtra(EXTRA_HEADERS, headers)
+            } else {
+                intent.putExtra(EXTRA_SUBSCRIPTION, notification.subscriptionId).putExtra(EXTRA_SEQUENCE, notification.sequenceId.ifBlank { notification.id })
+            }
+            context.startActivity(intent)
         }
 
-        fun isListenTag(tag: String) = tag == LISTEN_TAG
+        fun isListenTag(tag: String) = tag == LISTEN_TAG || tag == SPOKEN_ANSWER_TAG || tag.startsWith(ANSWER_PREFIX)
     }
 }
