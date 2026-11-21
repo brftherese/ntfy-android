@@ -3,6 +3,7 @@ package io.heckel.ntfy.msg
 import io.heckel.ntfy.db.Notification
 import io.heckel.ntfy.db.Repository
 import io.heckel.ntfy.db.Subscription
+import io.heckel.ntfy.service.WsConnection
 import io.heckel.ntfy.util.Log
 
 /**
@@ -22,7 +23,19 @@ class Poller(
      */
     suspend fun poll(subscription: Subscription): List<Notification> {
         val notifications = api.poll(subscription)
-        return processNotifications(subscription.id, notifications)
+        val added = processNotifications(subscription.id, notifications)
+        // Pebble build: deletes missed while away (see WsConnection.reconcileDeletes), from all the server holds.
+        try {
+            api.poll(subscription, since = WsConnection.DELETE_WINDOW)
+                .groupBy { it.sequenceId.ifEmpty { it.id } }
+                .mapValues { (_, n) -> n.maxByOrNull { it.timestamp } }
+                .forEach { (sequenceId, latest) ->
+                    if (latest?.event == ApiService.EVENT_MESSAGE_DELETE) repository.markAsDeletedBySequenceId(subscription.id, sequenceId)
+                }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not reconcile deletes: ${e.message}")
+        }
+        return added
     }
 
     /**

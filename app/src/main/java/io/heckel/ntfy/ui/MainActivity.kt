@@ -948,7 +948,7 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
         // Thanks to varunon9 (https://gist.github.com/varunon9/f2beec0a743c96708eb0ef971a9ff9cd) for this!
 
         const val POLL_WORKER_INTERVAL_MINUTES = 60L
-        const val DELETE_WORKER_INTERVAL_MINUTES = 8 * 60L
+        const val DELETE_WORKER_INTERVAL_MINUTES = 60L // Pebble build: hourly, so a day means about a day
         const val SERVICE_START_WORKER_INTERVAL_MINUTES = 3 * 60L
     }
 }

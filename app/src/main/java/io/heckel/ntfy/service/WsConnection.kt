@@ -14,6 +14,7 @@ import io.heckel.ntfy.util.HttpUtil
 import io.heckel.ntfy.util.Log
 import io.heckel.ntfy.util.topicShortUrl
 import io.heckel.ntfy.util.topicUrlWs
+import io.heckel.ntfy.util.topicUrlJsonPoll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -83,6 +84,35 @@ class WsConnection(
         webSocket = httpClient.newWebSocket(request, Listener(nextListenerId))
     }
 
+    /**
+     * Pebble build (-pebble-own7): deletes missed while disconnected. Reconnecting asks only for what came
+     * after the newest message this phone has, so a delete published while it was away, with a newer message
+     * received since, was never fetched again and its card stayed (2026-11-21). On every (re)connect this reads
+     * all the server still holds (12 hours) and drops each sequence whose latest event is a delete. Deletes
+     * only: a card he dismissed himself never comes back, and lastNotificationId is left alone.
+     */
+    private fun reconcileDeletes() {
+        scope.launch {
+            topicsToSubscriptionIds.forEach { (topic, subscriptionId) ->
+                try {
+                    val request = HttpUtil.requestBuilder(topicUrlJsonPoll(baseUrl, topic, DELETE_WINDOW), user, customHeaders).build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) return@use
+                        response.body.string().trim().lines()
+                            .mapNotNull { parser.parse(it, subscriptionId = subscriptionId, baseUrl = baseUrl) }
+                            .groupBy { it.sequenceId.ifEmpty { it.id } }
+                            .mapValues { (_, n) -> n.maxByOrNull { it.timestamp } }
+                            .forEach { (sequenceId, latest) ->
+                                if (latest?.event == ApiService.EVENT_MESSAGE_DELETE) repository.markAsDeletedBySequenceId(subscriptionId, sequenceId)
+                            }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "$shortUrl (gid=$globalId): Could not reconcile deletes for $topic: ${e.message}")
+                }
+            }
+        }
+    }
+
     @Synchronized
     override fun close() {
         closed = true
@@ -141,6 +171,7 @@ class WsConnection(
                 if (errorCount > 0) {
                     errorCount = 0
                 }
+                reconcileDeletes()
                 connectionDetailsListener(baseUrl, ConnectionState.CONNECTED, null, 0L)
             }
         }
@@ -216,6 +247,7 @@ class WsConnection(
     }
 
     companion object {
+        const val DELETE_WINDOW = "12h" // the server keeps 12 hours (ntfy's default cache-duration)
         private const val TAG = "NtfyWsConnection"
         private const val RECONNECT_TAG = "WsReconnect"
         private const val WS_CLOSE_NORMAL = 1000

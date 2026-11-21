@@ -114,11 +114,11 @@ class ApiService(private val context: Context) {
         }
     }
 
-    suspend fun poll(subscription: Subscription): List<Notification> {
+    suspend fun poll(subscription: Subscription, since: String? = null): List<Notification> {
         val subscriptionId = subscription.id
         val baseUrl = subscription.baseUrl
         val topic = subscription.topic
-        val sinceVal = subscription.lastNotificationId ?: SINCE_ALL
+        val sinceVal = since ?: subscription.lastNotificationId ?: SINCE_ALL
         val url = topicUrlJsonPoll(baseUrl, topic, sinceVal)
         Log.d(TAG, "Polling topic $url")
 

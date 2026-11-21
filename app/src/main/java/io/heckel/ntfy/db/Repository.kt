@@ -713,7 +713,7 @@ class Repository(private val sharedPrefs: SharedPreferences, database: Database)
         const val AUTO_DELETE_ONE_WEEK_SECONDS = 7 * ONE_DAY_SECONDS
         const val AUTO_DELETE_ONE_MONTH_SECONDS = 30 * ONE_DAY_SECONDS
         const val AUTO_DELETE_THREE_MONTHS_SECONDS = 90 * ONE_DAY_SECONDS
-        const val AUTO_DELETE_DEFAULT_SECONDS = AUTO_DELETE_ONE_MONTH_SECONDS
+        const val AUTO_DELETE_DEFAULT_SECONDS = AUTO_DELETE_ONE_DAY_SECONDS // Pebble build
 
         const val INSISTENT_MAX_PRIORITY_USE_GLOBAL = -1 // Values must match values.xml
         const val INSISTENT_MAX_PRIORITY_ENABLED = 1 // 0 = Disabled (but not needed in code)

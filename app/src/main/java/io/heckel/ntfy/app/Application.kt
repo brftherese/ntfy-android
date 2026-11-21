@@ -30,6 +30,15 @@ class Application : Application() {
         }
         registerNetworkCallback()
         io.heckel.ntfy.msg.SpeechStopOverlay.install(this)
+        // Pebble build (-pebble-own7): nothing stale outlives a day, whatever happens to a delete (the owner,
+        // 2026-11-21). Set once over his old setting; he can still change it in Settings afterwards.
+        ioScope.launch {
+            val prefs = getSharedPreferences(Repository.SHARED_PREFS_ID, MODE_PRIVATE)
+            if (!prefs.getBoolean("PebbleAutoDeleteOneDay", false)) {
+                repository.setAutoDeleteSeconds(Repository.AUTO_DELETE_ONE_DAY_SECONDS)
+                prefs.edit().putBoolean("PebbleAutoDeleteOneDay", true).apply()
+            }
+        }
     }
 
     private fun registerNetworkCallback() {
