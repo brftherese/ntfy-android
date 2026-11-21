@@ -52,7 +52,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-own9"
+            versionNameSuffix "-pebble-own10"
             // His own key (kept outside the repo): the generic Android Debug certificate,
             // with the ability to install .apk attachments, is what Play Protect flagged.
             signingConfig file(System.getProperty("user.home") + "/.android-keys/ntfy-pebble.properties").exists() ? signingConfigs.pebble : signingConfigs.debug
@@ -124,6 +124,11 @@ dependencies {
     // OkHttp (HTTP library)
     implementation 'com.squareup.okhttp3:okhttp:5.3.2'
 
+    def media3_version = '1.8.0'
+    implementation "androidx.media3:media3-exoplayer:$media3_version"
+    implementation "androidx.media3:media3-session:$media3_version"
+    implementation "androidx.media3:media3-datasource:$media3_version"
+
     // Firebase, sigh ... (only Google Play)
     playImplementation 'com.google.firebase:firebase-messaging:25.0.1'
 
@@ -150,6 +155,8 @@ dependencies {
 
     // Better click handling for links
     implementation 'me.saket:better-link-movement-method:2.2.0'
+
+    testImplementation 'junit:junit:4.13.2'
 
     // Markdown
     implementation 'io.noties.markwon:core:4.6.2'

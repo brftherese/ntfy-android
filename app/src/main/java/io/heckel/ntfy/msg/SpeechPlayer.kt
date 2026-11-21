@@ -28,6 +28,7 @@ import okhttp3.Request
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import io.heckel.ntfy.player.PlayerService
 
 /**
  * Speaks infinity's pushes. A push tagged speak-<token> has its words as audio at
@@ -100,6 +101,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 currentCall = call
             }
             showSpeaking(title, jobGeneration)
+            PlayerService.pauseForSpeech()
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Speech not available: HTTP ${response.code}")
@@ -171,6 +173,7 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             }
             if (releaseTrack) track?.let { runCatching { it.stop() }; it.release() }
             if (focusRequested && abandonFocus) audio.abandonAudioFocusRequest(focus)
+            PlayerService.resumeAfterSpeech()
         }
     }
 

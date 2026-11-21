@@ -8,6 +8,8 @@ import io.heckel.ntfy.up.Distributor
 import io.heckel.ntfy.util.Log
 import io.heckel.ntfy.util.decodeBytesMessage
 import io.heckel.ntfy.util.safeLet
+import io.heckel.ntfy.player.PlayerService
+import io.heckel.ntfy.player.PlayerLogic
 
 /**
  * The notification dispatcher figures out what to do with a notification.
@@ -32,15 +34,17 @@ class NotificationDispatcher(val context: Context, val repository: Repository) {
         val broadcast = shouldBroadcast(subscription, notification)
         val distribute = shouldDistribute(subscription, notification)
         val downloadAttachment = shouldDownloadAttachment(notification)
+        val player = if (notification.event == ApiService.EVENT_MESSAGE) PlayerLogic.parse(notification.tags, notification.id, notification.title, notification.attachment?.url, notification.timestamp) else null
         val downloadIcon = shouldDownloadIcon(notification)
         if (cancel) {
             notifier.cancel(notification.notificationId)
-        } else if (notify) {
+        } else if (notify && player == null) {
             notifier.display(subscription, notification)
         }
         if (notification.event == ApiService.EVENT_MESSAGE && !muted && subscription.upAppId == null) {
             speech.maybeSpeak(notification)
         }
+        player?.let { PlayerService.startFromPush(context, it) }
         if (broadcast) {
             broadcaster.sendMessage(subscription, notification, muted)
         }
@@ -59,7 +63,7 @@ class NotificationDispatcher(val context: Context, val repository: Repository) {
     }
 
     private fun shouldDownloadAttachment(notification: Notification): Boolean {
-        if (notification.attachment == null || notification.event != ApiService.EVENT_MESSAGE) {
+        if (notification.attachment == null || notification.event != ApiService.EVENT_MESSAGE || PlayerLogic.isPlayer(notification.tags)) {
             return false
         }
         val attachment = notification.attachment
