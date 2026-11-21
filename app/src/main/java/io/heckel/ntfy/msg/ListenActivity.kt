@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -67,8 +69,39 @@ class ListenActivity : Activity() {
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) listen() else finishQuietly("no microphone permission")
     }
 
+    private var routed = false
+    private var modeBefore = AudioManager.MODE_NORMAL
+
+    /**
+     * The car's or headset's microphone when one is connected, else the phone's (the owner, 2026-11-21: "Phone or
+     * Bluetooth depending on what's connected"). Android takes a Bluetooth microphone only as the call device, so
+     * it is asked for as that while listening and given back after.
+     */
+    private fun useBluetoothMic(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return "phone"
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val bt = audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == 26 /* BLE headset */ }
+            ?: return "phone"
+        return runCatching {
+            modeBefore = audio.mode
+            audio.mode = AudioManager.MODE_IN_COMMUNICATION
+            routed = audio.setCommunicationDevice(bt)
+            if (!routed) { audio.mode = modeBefore; "phone" } else bt.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"
+        }.getOrElse { Log.w(TAG, "Bluetooth microphone not available", it); "phone" }
+    }
+
+    private fun releaseMic() {
+        if (!routed || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        routed = false
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        runCatching { audio.clearCommunicationDevice(); audio.mode = modeBefore }
+    }
+
     private fun listen() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) { finishQuietly("no speech recognition on this phone"); return }
+        val mic = useBluetoothMic()
+        status.text = if (mic == "phone") "Listening…" else "Listening ($mic)…"
+        Log.d(TAG, "Listening on the $mic microphone")
         val r = SpeechRecognizer.createSpeechRecognizer(this)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
@@ -77,7 +110,7 @@ class ListenActivity : Activity() {
                 if (said.isEmpty()) finishQuietly("heard nothing") else send(said)
             }
             override fun onError(error: Int) { if (!done) finishQuietly("recognizer error $error") }
-            override fun onReadyForSpeech(params: Bundle?) { status.text = "Listening…" }
+            override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
@@ -100,6 +133,7 @@ class ListenActivity : Activity() {
 
     private fun send(said: String) {
         done = true
+        releaseMic()
         status.text = "“$said”"
         val url = intent.getStringExtra(EXTRA_URL) ?: return finishQuietly("no reply URL")
         val headers = (intent.getStringArrayExtra(EXTRA_HEADERS) ?: emptyArray()).toList()
@@ -116,6 +150,7 @@ class ListenActivity : Activity() {
 
     private fun finishQuietly(why: String) {
         done = true
+        releaseMic()
         Log.d(TAG, "Not listening any more: $why")
         status.text = when { why.startsWith("heard nothing") || why.startsWith("timed out") || why.startsWith("recognizer error 7") -> "Didn't hear anything"; why == "cancelled" -> "Cancelled"; else -> why }
         main.postDelayed({ finish() }, 1_200)
@@ -124,6 +159,7 @@ class ListenActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         runCatching { recognizer?.destroy() }
+        releaseMic()
         // What the speech paused (the Office, a book) goes on once he has answered.
         io.heckel.ntfy.player.PlayerService.resumeAfterSpeech()
         super.onDestroy()
