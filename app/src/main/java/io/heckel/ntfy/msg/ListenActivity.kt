@@ -179,6 +179,7 @@ class ListenActivity : Activity() {
         main.removeCallbacksAndMessages(null)
         runCatching { recognizer?.destroy() }
         releaseMic()
+        releaseFocus()
         // What the speech paused (the Office, a book) goes on once he has answered.
         io.heckel.ntfy.player.PlayerService.resumeAfterSpeech()
         super.onDestroy()
@@ -227,10 +228,10 @@ class ListenActivity : Activity() {
          * 2026-11-21: "whenever a notification is read aloud it should listen for a spoken response"). A listen push's
          * answer goes to its Reply; any other's goes to his line as his message, naming the push it answers.
          */
-        fun maybeListen(context: Context, notification: Notification) {
+        fun maybeListen(context: Context, notification: Notification): Boolean {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
                 Log.w(TAG, "Cannot open the listening screen from the background: display over other apps is off")
-                return
+                return false
             }
             val reply = replyOf(notification)
             val intent = Intent(context, ListenActivity::class.java)
@@ -244,6 +245,24 @@ class ListenActivity : Activity() {
                 intent.putExtra(EXTRA_SUBSCRIPTION, notification.subscriptionId).putExtra(EXTRA_SEQUENCE, notification.sequenceId.ifBlank { notification.id })
             }
             context.startActivity(intent)
+            return true
+        }
+
+        // The speech's audio focus, kept while he answers, so what it paused stays paused; given back when listening
+        // ends, or after 20 seconds whatever happens.
+        private var heldAudio: AudioManager? = null
+        private var heldFocus: android.media.AudioFocusRequest? = null
+        private val focusTimeout = Runnable { releaseFocus() }
+        @Synchronized fun holdFocus(audio: AudioManager, focus: android.media.AudioFocusRequest) {
+            releaseFocus()
+            heldAudio = audio; heldFocus = focus
+            android.os.Handler(Looper.getMainLooper()).postDelayed(focusTimeout, 20_000)
+        }
+        @Synchronized fun releaseFocus() {
+            android.os.Handler(Looper.getMainLooper()).removeCallbacks(focusTimeout)
+            val a = heldAudio; val f = heldFocus
+            heldAudio = null; heldFocus = null
+            if (a != null && f != null) runCatching { a.abandonAudioFocusRequest(f) }
         }
 
         fun isListenTag(tag: String) = tag == LISTEN_TAG || tag == SPOKEN_ANSWER_TAG || tag.startsWith(ANSWER_PREFIX)

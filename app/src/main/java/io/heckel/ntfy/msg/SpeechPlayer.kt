@@ -78,7 +78,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
         val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
         // A call or another app taking the audio ends the speech; it is never resumed.
-        val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+        // Other audio pauses while infinity speaks, not just lowered (the owner, 2026-11-21: spoken notices "talk over
+        // other things ... instead of pausing them"): transient focus, which players answer by pausing and resuming.
+        val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener { change ->
                 // Only a lasting loss stops it (a call is caught by inCall); a brief transient loss
@@ -174,11 +176,13 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 }
             }
             if (releaseTrack) track?.let { runCatching { it.stop() }; it.release() }
-            if (focusRequested && abandonFocus) audio.abandonAudioFocusRequest(focus)
-            // Read to the end, not stopped or replaced: a card tagged listen hears his answer (ListenActivity).
+            // Read to the end, not stopped or replaced: it listens for his answer (ListenActivity), and what it paused
+            // stays paused until he has answered, so the microphone doesn't hear his book come back.
             val listen = notification != null && stoppedBy == null && outcome.startsWith("spoken") && isCurrent(jobGeneration)
+            if (focusRequested && abandonFocus) { if (listen) ListenActivity.holdFocus(audio, focus) else audio.abandonAudioFocusRequest(focus) }
             if (listen) android.os.Handler(android.os.Looper.getMainLooper()).post {
-                runCatching { ListenActivity.maybeListen(context.applicationContext, notification!!) }.onFailure { Log.w(TAG, "Could not listen", it) }
+                val started = runCatching { ListenActivity.maybeListen(context.applicationContext, notification!!) }.onFailure { Log.w(TAG, "Could not listen", it) }.getOrDefault(false)
+                if (!started) { ListenActivity.releaseFocus(); PlayerService.resumeAfterSpeech() }
             } else PlayerService.resumeAfterSpeech()
         }
     }
