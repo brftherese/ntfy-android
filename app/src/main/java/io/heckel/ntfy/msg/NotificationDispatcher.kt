@@ -27,6 +27,11 @@ class NotificationDispatcher(val context: Context, val repository: Repository) {
 
     fun dispatch(subscription: Subscription, notification: Notification) {
         Log.d(TAG, "Dispatching $notification for subscription $subscription")
+        // Pebble build: infinity's command to turn Wireless debugging on (Shizuku restart); never shown.
+        if (notification.event == ApiService.EVENT_MESSAGE && io.heckel.ntfy.watch.AdbWifi.handles(subscription, notification)) {
+            io.heckel.ntfy.watch.AdbWifi.enable(context)
+            return
+        }
 
         val cancel = shouldCancel(notification)
         val muted = getMuted(subscription)
