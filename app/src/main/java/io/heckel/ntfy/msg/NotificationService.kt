@@ -107,7 +107,9 @@ class NotificationService(val context: Context) {
             .setContentTitle(title)
             .setWhen(arrivedAt(notification)) // Pebble build: when it reached the phone, so a burst stays in order
             .setShowWhen(true)
-            .setOnlyAlertOnce(true) // Do not vibrate or play sound if already showing (updates!)
+            // Updates stay silent, except a new message on a card already showing (tag alert-again: a new text in
+            // the same chat), which must buzz again and reach his watch (Pebble build -pebble-own19).
+            .setOnlyAlertOnce(!splitTags(notification.tags).contains("alert-again"))
             .setAutoCancel(true) // Cancel when notification is clicked
         setStyleAndText(builder, subscription, notification) // Preview picture or big text style
         setClickAction(builder, subscription, notification)

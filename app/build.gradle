@@ -52,7 +52,7 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-own18"
+            versionNameSuffix "-pebble-own19"
             // His own key (kept outside the repo): the generic Android Debug certificate,
             // with the ability to install .apk attachments, is what Play Protect flagged.
             signingConfig file(System.getProperty("user.home") + "/.android-keys/ntfy-pebble.properties").exists() ? signingConfigs.pebble : signingConfigs.debug
