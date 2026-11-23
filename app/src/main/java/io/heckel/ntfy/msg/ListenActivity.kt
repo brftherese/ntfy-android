@@ -226,11 +226,14 @@ class ListenActivity : Activity() {
         }
 
         /**
-         * After SpeechPlayer has read a push aloud to the end, it listens for his answer, whatever the push (the owner,
-         * 2026-11-21: "whenever a notification is read aloud it should listen for a spoken response"). A listen push's
+         * After SpeechPlayer reads a push to the end, listen only when it waits on his answer (own21, bug #194).
+         * FYI/chatter never opens the microphone. A listen push's
          * answer goes to its Reply; any other's goes to his line as his message, naming the push it answers.
          */
+        fun expectsAnswer(notification: Notification): Boolean = SpeechReplyPolicy.expectsAnswer(splitTags(notification.tags))
+
         fun maybeListen(context: Context, notification: Notification): Boolean {
+            if (!expectsAnswer(notification)) return false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
                 Log.w(TAG, "Cannot open the listening screen from the background: display over other apps is off")
                 return false

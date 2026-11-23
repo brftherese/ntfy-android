@@ -17,7 +17,7 @@ android {
         minSdkVersion 26
         targetSdkVersion 36
 
-        versionCode 72
+        versionCode 73
         versionName "1.25.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -52,10 +52,11 @@ android {
             shrinkResources false
             debuggable false
             applicationIdSuffix ".pebble"
-            versionNameSuffix "-pebble-own20"
+            versionNameSuffix "-pebble-own21"
             // His own key (kept outside the repo): the generic Android Debug certificate,
             // with the ability to install .apk attachments, is what Play Protect flagged.
-            signingConfig file(System.getProperty("user.home") + "/.android-keys/ntfy-pebble.properties").exists() ? signingConfigs.pebble : signingConfigs.debug
+            // A release must fail signing if his key is unavailable; never substitute another key.
+            signingConfig signingConfigs.pebble
         }
         debug {
             minifyEnabled false

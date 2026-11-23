@@ -194,9 +194,9 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
                 }
             }
             if (releaseTrack) track?.let { runCatching { it.stop() }; it.release() }
-            // Read to the end, not stopped or replaced: it listens for his answer (ListenActivity), and what it paused
+            // Read to the end, not stopped or replaced, and waiting on him: listen for his answer. What it paused
             // stays paused until he has answered, so the microphone doesn't hear his book come back.
-            val listen = notification != null && stoppedBy == null && outcome.startsWith("spoken") && isCurrent(jobGeneration)
+            val listen = notification != null && ListenActivity.expectsAnswer(notification) && stoppedBy == null && outcome.startsWith("spoken") && isCurrent(jobGeneration)
             if (focusRequested && abandonFocus) { if (listen) ListenActivity.holdFocus(audio, focus) else audio.abandonAudioFocusRequest(focus) }
             // Replaced by a newer push: that one speaks now, so nothing resumes yet.
             val superseded = synchronized(stateLock) { jobGeneration != generation && executor.queue.isNotEmpty() }
