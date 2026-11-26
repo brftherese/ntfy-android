@@ -123,7 +123,7 @@ class PlayerService : MediaSessionService() {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_BUFFERING) report("buffering")
-                if (state == Player.STATE_ENDED) { report("ended"); item?.let { prefs.edit().remove("pos_${it.id}").apply() }; stopPlayback() }
+                if (state == Player.STATE_ENDED) { report("ended"); item?.let { prefs.edit().remove("pos_${it.id}").apply() }; finish() }
             }
             // A seek from the lock screen, the car or Now Playing: infinity hears the new place at once.
             override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
@@ -369,6 +369,19 @@ class PlayerService : MediaSessionService() {
         val ended = player.playbackState == Player.STATE_ENDED
         player.stop()
         if (!ended && item != null) report("stopped")
+        stopIfIdle()
+    }
+
+    /** Played to its end: unloaded and forgotten, so nothing but a new play from infinity starts it again. A car or
+     *  headset sending PLAY as it connects, a spoken push handing the audio back, RESUME or Now Playing had
+     *  started a finished Office over from the top (2026-11-26 13:56: Midday Prayer again and again). */
+    private fun finish() {
+        player.stop()
+        player.clearMediaItems()
+        item = null
+        setQueueMode(false)
+        prefs.edit().remove("last_url").remove("last_title").remove("last_id").remove("last_queue").apply()
+        markPlaying(false)
         stopIfIdle()
     }
 
