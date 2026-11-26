@@ -31,6 +31,7 @@ import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -98,6 +99,15 @@ class PlayerService : MediaSessionService() {
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+            // Read ahead: Media3's default holds ~13 MB of audio (about 20 s of hi-res) and plays again after 2 s,
+            // so a slow connection stalled every 6 s (2026-11-26, VOCES8 in hi-res). Up to 3 minutes or 48 MB ahead,
+            // and after a stall it waits for 10 s of audio (30 s was too long a silence, the owner), not stutter.
+            // Quality stays as he chose ("buffering instead of just dropping the quality").
+            .setLoadControl(DefaultLoadControl.Builder()
+                .setBufferDurationsMs(60_000, 180_000, 2_500, 10_000)
+                .setTargetBufferBytes(48 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build())
             .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
