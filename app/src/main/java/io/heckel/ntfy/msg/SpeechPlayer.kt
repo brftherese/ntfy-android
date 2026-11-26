@@ -108,12 +108,15 @@ class SpeechPlayer(private val context: Context, private val repository: Reposit
             // Whatever else is playing is paused outright, as his headset's button would, since an app may ignore the
             // focus request (ElevenReader kept reading under the speech, 2026-11-21); it is played again afterwards
             // only if this paused it.
+            // infinity's own player first, directly (2026-11-26: the pause key went to it, so it never knew speech had
+            // paused it, and the play key afterwards went nowhere: his music stayed paused). The key is then only for
+            // another app still playing.
+            if (PlayerService.pauseForSpeechNow()) Thread.sleep(250)
             if (audio.isMusicActive) {
                 mediaKey(audio, KeyEvent.KEYCODE_MEDIA_PAUSE)
                 synchronized(stateLock) { pausedOthers = true }
                 Thread.sleep(300)
             }
-            PlayerService.pauseForSpeech()
             call.execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "Speech not available: HTTP ${response.code}")

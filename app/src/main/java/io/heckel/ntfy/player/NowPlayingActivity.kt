@@ -37,6 +37,7 @@ class NowPlayingActivity : AppCompatActivity() {
     private lateinit var length: TextView
     private lateinit var play: MaterialButton
     private lateinit var art: ImageView
+    private lateinit var tracks: android.view.View
     private var shownArt: MediaMetadata? = null
     private var dragging = false
     private val handler = Handler(Looper.getMainLooper())
@@ -60,6 +61,9 @@ class NowPlayingActivity : AppCompatActivity() {
         mapOf(R.id.np_back30 to -30, R.id.np_fwd30 to 30, R.id.np_back10 to -10, R.id.np_back2m to -120, R.id.np_fwd2m to 120, R.id.np_fwd5m to 300)
             .forEach { (id, by) -> findViewById<MaterialButton>(id).setOnClickListener { skip(by) } }
         findViewById<MaterialButton>(R.id.np_stop).setOnClickListener { controller?.stop(); finish() }
+        tracks = findViewById(R.id.np_tracks)
+        findViewById<MaterialButton>(R.id.np_prev_track).setOnClickListener { controller?.seekToPreviousMediaItem() }
+        findViewById<MaterialButton>(R.id.np_next_track).setOnClickListener { controller?.seekToNextMediaItem() }
         seek.setLabelFormatter { clock((it * 1000).toLong()) }
         seek.addOnChangeListener { _, value, fromUser -> if (fromUser) at.text = clock((value * 1000).toLong()) }
         seek.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
@@ -93,10 +97,15 @@ class NowPlayingActivity : AppCompatActivity() {
 
     private fun refresh() {
         val c = controller
-        if (c == null || c.mediaItemCount == 0) { title.text = "Nothing playing"; state.text = ""; showArt(null); return }
+        if (c == null || c.mediaItemCount == 0) { title.text = "Nothing playing"; state.text = ""; tracks.visibility = android.view.View.GONE; showArt(null); return }
         val meta = c.mediaMetadata
         title.text = meta.title ?: "Playing"
-        state.text = when { c.isPlaying -> "Playing"; c.playbackState == Player.STATE_BUFFERING -> "Loading…"; c.playbackState == Player.STATE_ENDED -> "Finished"; else -> "Paused" }
+        val doing = when { c.isPlaying -> "Playing"; c.playbackState == Player.STATE_BUFFERING -> "Loading…"; c.playbackState == Player.STATE_ENDED -> "Finished"; else -> "Paused" }
+        // Music: who and which album, and the track buttons; a recording has neither.
+        val queue = c.mediaItemCount > 1
+        val who = listOfNotNull(meta.artist?.toString()?.takeIf { it.isNotBlank() && it != "infinity" }, meta.albumTitle?.toString()?.takeIf { it.isNotBlank() }).joinToString(" · ")
+        state.text = if (who.isEmpty()) doing else "$doing · $who"
+        tracks.visibility = if (queue) android.view.View.VISIBLE else android.view.View.GONE
         val playing = c.isPlaying || c.playWhenReady && c.playbackState == Player.STATE_BUFFERING
         play.setIconResource(if (playing) androidx.media3.session.R.drawable.media3_icon_pause else androidx.media3.session.R.drawable.media3_icon_play)
         play.contentDescription = if (playing) "Pause" else "Play"
@@ -109,12 +118,21 @@ class NowPlayingActivity : AppCompatActivity() {
         if (meta != shownArt) showArt(meta)
     }
 
-    /** The recording's own artwork (the Office's carries the Liturgy of the Hours cover), else a quiet note. */
+    /** The recording's own artwork (the Office's carries the Liturgy of the Hours cover), or the album cover a
+     *  queue's track links to (music, fetched off the main thread and kept), else a quiet note. */
     private fun showArt(meta: MediaMetadata?) {
         shownArt = meta
         val bytes = meta?.artworkData
         val bitmap = bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
-        if (bitmap != null) { art.scaleType = ImageView.ScaleType.CENTER_CROP; art.setImageBitmap(bitmap) }
-        else { art.scaleType = ImageView.ScaleType.CENTER; art.setImageResource(R.drawable.ic_player_artwork) }
+            ?: meta?.artworkUri?.toString()?.let { covers[it] }
+        if (bitmap != null) { art.scaleType = ImageView.ScaleType.CENTER_CROP; art.setImageBitmap(bitmap); return }
+        art.scaleType = ImageView.ScaleType.CENTER; art.setImageResource(R.drawable.ic_player_artwork)
+        val uri = meta?.artworkUri?.toString()?.takeIf { it.startsWith("https://") } ?: return
+        Thread {
+            val b = runCatching { java.net.URL(uri).openStream().use { BitmapFactory.decodeStream(it) } }.getOrNull() ?: return@Thread
+            covers[uri] = b
+            handler.post { if (shownArt?.artworkUri?.toString() == uri) showArt(shownArt) }
+        }.start()
     }
+    private val covers = java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>()
 }

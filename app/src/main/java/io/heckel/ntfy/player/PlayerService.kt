@@ -78,6 +78,11 @@ class PlayerService : MediaSessionService() {
     private var item: PlayerRequest? = null
     private var lastReport = 0L
     private var pausedForSpeech = false
+    // A queue (music, own24): the playlist infinity sent, played gapless; near its end infinity is asked for more.
+    private var queueMode = false
+    private var queueMore = false
+    private var fetchingMore = false
+    private lateinit var buttons: List<CommandButton>
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
     private val ticker = object : Runnable {
         override fun run() { if (player.isPlaying) { report("playing", force = false); save(); markPlaying(true) }; main.postDelayed(this, 15_000) }
@@ -111,6 +116,14 @@ class PlayerService : MediaSessionService() {
             override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) { report(if (player.playWhenReady) "playing" else "paused"); save() }
             }
+            // Gapless to the next track of a queue, or next/previous from the lock screen or the car.
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (!queueMode || mediaItem == null) return
+                item = item?.copy(id = mediaItem.mediaId, title = mediaItem.mediaMetadata.title?.toString() ?: "")
+                prefs.edit().putString("last_id", mediaItem.mediaId).putString("last_title", item?.title).apply()
+                report(if (player.playWhenReady) "playing" else "paused")
+                moreIfNearEnd()
+            }
             override fun onPlayerError(error: PlaybackException) { Log.w(TAG, "Playback failed", error); report("error", error.message); stopPlayback() }
         })
         val openNowPlaying = PendingIntent.getActivity(this, 0, Intent(this, NowPlayingActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -123,7 +136,7 @@ class PlayerService : MediaSessionService() {
             .setSessionCommand(BACK_30).setSlots(CommandButton.SLOT_BACK).build()
         val forward = CommandButton.Builder(CommandButton.ICON_FAST_FORWARD).setDisplayName("Forward 30 seconds")
             .setSessionCommand(FORWARD_30).setSlots(CommandButton.SLOT_FORWARD).build()
-        val buttons = listOf(back, forward)
+        buttons = listOf(back, forward)
         session = MediaSession.Builder(this, player)
             .setSessionActivity(openNowPlaying)
             .setMediaButtonPreferences(buttons)
@@ -131,10 +144,8 @@ class PlayerService : MediaSessionService() {
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
                     MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(BACK_30).add(FORWARD_30).build())
-                        .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                            .removeAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                                Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM).build())
-                        .setMediaButtonPreferences(buttons)
+                        .setAvailablePlayerCommands(playerCommands())
+                        .setMediaButtonPreferences(if (queueMode) emptyList() else buttons)
                         .build()
                 override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
                     when (customCommand.customAction) { BACK_30.customAction -> player.seekBack(); FORWARD_30.customAction -> player.seekForward() }
@@ -149,7 +160,11 @@ class PlayerService : MediaSessionService() {
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> false
                         else -> return false
                     }
-                    if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) { if (forwardKey) player.seekForward() else player.seekBack() }
+                    if (key.action != KeyEvent.ACTION_DOWN || key.repeatCount != 0) return true
+                    // In a queue the track keys change track; fast-forward and rewind still skip 30 s.
+                    val trackKey = key.keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || key.keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                    if (queueMode && trackKey) { if (forwardKey) player.seekToNextMediaItem() else player.seekToPreviousMediaItem() }
+                    else if (forwardKey) player.seekForward() else player.seekBack()
                     return true
                 }
             })
@@ -203,8 +218,10 @@ class PlayerService : MediaSessionService() {
             ACTION_PLAY -> {
                 val url = i.getStringExtra("url"); val id = i.getStringExtra("id")
                 if (url == null || id == null) { Log.w(TAG, "PLAY without url or id"); stopIfIdle(); return }
-                play(PlayerRequest(url, i.getStringExtra("title") ?: "", id, if (i.hasExtra("start")) i.getIntExtra("start", 0) else null))
+                play(PlayerRequest(url, i.getStringExtra("title") ?: "", id, if (i.hasExtra("start")) i.getIntExtra("start", 0) else null, i.getBooleanExtra("queue", false)))
             }
+            ACTION_NEXT -> if (ensureItem(autoplay = false)) player.seekToNextMediaItem()
+            ACTION_PREVIOUS -> if (ensureItem(autoplay = false)) player.seekToPreviousMediaItem()
             ACTION_PAUSE -> player.pause()
             ACTION_RESUME -> if (ensureItem()) player.play() else stopIfIdle()
             ACTION_TOGGLE -> if (ensureItem()) { if (player.isPlaying) player.pause() else player.play() } else stopIfIdle()
@@ -216,8 +233,10 @@ class PlayerService : MediaSessionService() {
 
     private fun play(request: PlayerRequest, autoplay: Boolean = true) {
         if (!PlayerLogic.allowedUrl(request.url)) { Log.w(TAG, "Refused player URL ${request.url}"); stopIfIdle(); return }
-        save(); item = request
-        prefs.edit().putString("last_url", request.url).putString("last_title", request.title).putString("last_id", request.id).apply()
+        save()
+        if (request.queue) { playQueue(request, autoplay); return }
+        setQueueMode(false); item = request
+        prefs.edit().putString("last_url", request.url).putString("last_title", request.title).putString("last_id", request.id).putBoolean("last_queue", false).apply()
         player.setMediaItem(MediaItem.Builder().setMediaId(request.id).setUri(request.url)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(request.title).setArtist("infinity").build()).build())
         player.prepare()
@@ -230,10 +249,93 @@ class PlayerService : MediaSessionService() {
         scope.launch { runCatching { CacheWriter(CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(DefaultDataSource.Factory(this@PlayerService)).createDataSource(), spec, null, null).cache() } }
     }
 
+    /** A queue from infinity: fetched (off the main thread), then played as one playlist from its current track. */
+    private fun playQueue(request: PlayerRequest, autoplay: Boolean) {
+        item = request
+        prefs.edit().putString("last_url", request.url).putString("last_title", request.title).putString("last_id", request.id).putBoolean("last_queue", true).apply()
+        scope.launch {
+            val json = runCatching { fetchJson(request.url) }.getOrElse { Log.w(TAG, "Queue fetch failed", it); null }
+            main.post {
+                if (item?.url != request.url) return@post // something else was played meanwhile
+                if (json == null) { report("error", "queue not reachable"); stopIfIdle(); return@post }
+                val items = mediaItems(json)
+                if (items.isEmpty()) { report("error", "empty queue"); stopIfIdle(); return@post }
+                setQueueMode(true)
+                queueMore = json.optBoolean("more", false)
+                val start = json.optInt("start", 0).coerceIn(0, items.size - 1)
+                val id = items[start].mediaId
+                item = request.copy(id = id, title = items[start].mediaMetadata.title?.toString() ?: request.title)
+                val savedAt = prefs.getLong("at_$id", 0)
+                val saved = if (System.currentTimeMillis() - savedAt < KEEP_MS) prefs.getLong("pos_$id", 0) else 0
+                val position = request.start?.times(1000L) ?: PlayerLogic.resumePosition(saved, prefs.getLong("dur_$id", 0))
+                player.setMediaItems(items, start, position)
+                player.prepare()
+                player.playWhenReady = autoplay
+                moreIfNearEnd()
+            }
+        }
+    }
+
+    private fun mediaItems(json: JSONObject): List<MediaItem> {
+        val arr = json.optJSONArray("items") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { k ->
+            val o = arr.optJSONObject(k) ?: return@mapNotNull null
+            val url = o.optString("url"); val id = o.optString("id")
+            if (!PlayerLogic.allowedUrl(url) || id.isEmpty()) return@mapNotNull null
+            MediaItem.Builder().setMediaId(id).setUri(url).setMediaMetadata(MediaMetadata.Builder()
+                .setTitle(o.optString("title")).setArtist(o.optString("artist").ifEmpty { "infinity" }).setAlbumTitle(o.optString("album"))
+                // The album cover (Qobuz's static images) on the lock screen, in the car and in Now Playing.
+                .apply { o.optString("art").takeIf { it.startsWith("https://") }?.let { setArtworkUri(Uri.parse(it)) } }.build()).build()
+        }
+    }
+
+    private fun fetchJson(url: String): JSONObject {
+        val client = http.newBuilder().readTimeout(20, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS).build()
+        client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("queue answered ${r.code}")
+            return JSONObject(r.body?.string() ?: "{}")
+        }
+    }
+
+    /** A station (more = true) near its last two tracks asks infinity for the next ones. */
+    private fun moreIfNearEnd() {
+        val r = item ?: return
+        if (!queueMode || !queueMore || fetchingMore || player.currentMediaItemIndex < player.mediaItemCount - 2) return
+        fetchingMore = true
+        val page = PlayerLogic.queuePage(r.url, player.mediaItemCount)
+        scope.launch {
+            val json = runCatching { fetchJson(page) }.getOrNull()
+            main.post {
+                fetchingMore = false
+                if (json == null || item?.url != r.url) return@post
+                queueMore = json.optBoolean("more", false)
+                val items = mediaItems(json)
+                if (items.isNotEmpty()) player.addMediaItems(items)
+            }
+        }
+    }
+
+    /** A queue gets the track buttons (previous/next) and music's audio; a recording keeps back/forward 30 s. */
+    private fun setQueueMode(on: Boolean) {
+        if (queueMode == on) return
+        queueMode = on; queueMore = false
+        player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+            .setContentType(if (on) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
+        session.setMediaButtonPreferences(if (on) emptyList() else buttons)
+        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(BACK_30).add(FORWARD_30).build()
+        for (c in session.connectedControllers) session.setAvailableCommands(c, sessionCommands, playerCommands())
+    }
+
+    private fun playerCommands(): Player.Commands {
+        val all = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+        return if (queueMode) all.build() else all.removeAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM).build()
+    }
+
     /** The current item, or the last one from where it was left (after STOP or the process died). */
     private fun ensureItem(autoplay: Boolean = true): Boolean {
         if (item != null && player.playbackState != Player.STATE_IDLE) return true
-        val request = item ?: prefs.getString("last_url", null)?.let { url -> prefs.getString("last_id", null)?.let { id -> PlayerRequest(url, prefs.getString("last_title", "") ?: "", id, null) } }
+        val request = item ?: prefs.getString("last_url", null)?.let { url -> prefs.getString("last_id", null)?.let { id -> PlayerRequest(url, prefs.getString("last_title", "") ?: "", id, null, prefs.getBoolean("last_queue", false)) } }
         if (request == null || !PlayerLogic.allowedUrl(request.url)) return false
         play(request.copy(start = null), autoplay = autoplay)
         return true
@@ -302,6 +404,8 @@ class PlayerService : MediaSessionService() {
         const val ACTION_STOP = "io.heckel.ntfy.player.STOP"
         const val ACTION_SEEK = "io.heckel.ntfy.player.SEEK"
         const val ACTION_SKIP = "io.heckel.ntfy.player.SKIP"
+        const val ACTION_NEXT = "io.heckel.ntfy.player.NEXT"
+        const val ACTION_PREVIOUS = "io.heckel.ntfy.player.PREVIOUS"
         const val EXTRA_FOREGROUND = "io.heckel.ntfy.player.FOREGROUND"
         private const val TAG = "NtfyPlayer"
         private val BACK_30 = SessionCommand("io.heckel.ntfy.player.BACK_30", Bundle.EMPTY)
@@ -315,7 +419,7 @@ class PlayerService : MediaSessionService() {
         /** Starts or controls the player. PLAY, RESUME and TOGGLE may start playback, so they come up in the foreground. */
         fun send(c: Context, action: String, extras: Intent? = null) {
             val starts = action == ACTION_PLAY || action == ACTION_RESUME || action == ACTION_TOGGLE
-            if (!starts && instance == null && action != ACTION_SEEK) return // nothing loaded: a pause or stop has nothing to do
+            if (!starts && instance == null && action != ACTION_SEEK && action != ACTION_NEXT && action != ACTION_PREVIOUS) return // nothing loaded: a pause or stop has nothing to do
             val intent = Intent(c, PlayerService::class.java).setAction(action).apply { extras?.extras?.let { putExtras(it) } }
             if (starts || instance == null) intent.putExtra(EXTRA_FOREGROUND, true)
             runCatching { if (intent.getBooleanExtra(EXTRA_FOREGROUND, false)) ContextCompat.startForegroundService(c, intent) else c.startService(intent) }
@@ -323,7 +427,7 @@ class PlayerService : MediaSessionService() {
         }
 
         fun startFromPush(c: Context, r: PlayerRequest) {
-            send(c, ACTION_PLAY, Intent().putExtra("url", r.url).putExtra("title", r.title).putExtra("id", r.id).apply { r.start?.let { putExtra("start", it) } })
+            send(c, ACTION_PLAY, Intent().putExtra("url", r.url).putExtra("title", r.title).putExtra("id", r.id).putExtra("queue", r.queue).apply { r.start?.let { putExtra("start", it) } })
         }
 
         /** Now Playing opened with nothing loaded (the app was killed, 2026-11-26: "there is no now playing when the
@@ -337,7 +441,19 @@ class PlayerService : MediaSessionService() {
         }
 
         // Speech runs on its own thread; the player only on the main one.
-        fun pauseForSpeech() { main.post { instance?.let { if (it.player.isPlaying) { it.pausedForSpeech = true; it.player.pause() } } } }
+        fun pauseForSpeech() { main.post { instance?.let { if (it.player.isPlaying || (it.player.playWhenReady && it.player.playbackState == Player.STATE_BUFFERING)) { it.pausedForSpeech = true; it.player.pause() } } } }
+        /** From speech's own thread: pauses the player if it is playing, waiting for the main thread; true if it was. */
+        fun pauseForSpeechNow(): Boolean {
+            val svc = instance ?: return false
+            val done = java.util.concurrent.CountDownLatch(1)
+            var paused = false
+            main.post {
+                runCatching { if (svc.player.isPlaying || (svc.player.playWhenReady && svc.player.playbackState == Player.STATE_BUFFERING)) { svc.pausedForSpeech = true; svc.player.pause(); paused = true } }
+                done.countDown()
+            }
+            done.await(1, TimeUnit.SECONDS)
+            return paused
+        }
         fun resumeAfterSpeech() { main.post { instance?.let { if (it.pausedForSpeech) { it.pausedForSpeech = false; it.player.play() } } } }
     }
 }

@@ -2,7 +2,8 @@ package io.heckel.ntfy.player
 
 import java.net.URI
 
-data class PlayerRequest(val url: String, val title: String, val id: String, val start: Int?)
+/** `queue`: the url is infinity's queue (JSON: items with id, url, title, artist, album; start; more), played through as a playlist (own24, music). */
+data class PlayerRequest(val url: String, val title: String, val id: String, val start: Int?, val queue: Boolean = false)
 
 object PlayerLogic {
     private val idPattern = Regex("[A-Za-z0-9_-]{8,64}")
@@ -12,10 +13,12 @@ object PlayerLogic {
         val parts = tags.orEmpty().split(',').map { it.trim() }
         val id = parts.firstOrNull { it.startsWith("player-id-") }?.removePrefix("player-id-")?.takeIf { idPattern.matches(it) } ?: messageId
         val start = parts.firstOrNull { it.startsWith("player-start-") }?.removePrefix("player-start-")?.toIntOrNull()?.takeIf { it >= 0 }
-        return PlayerRequest(url, title, id, start)
+        return PlayerRequest(url, title, id, start, queue = parts.contains("player-queue"))
     }
     fun allowedUrl(value: String): Boolean = runCatching {
         val u = URI(value); u.scheme == "https" && (u.host == "infinity.frft.org" || u.host == "ntfy.frft.org")
     }.getOrDefault(false)
+    /** The queue's address for more items, from `from` on (its own query dropped). */
+    fun queuePage(url: String, from: Int): String = url.substringBefore('?') + "?from=" + from
     fun resumePosition(saved: Long, duration: Long): Long = if (saved > 2000 && (duration <= 0 || saved < duration)) saved - 2000 else 0
 }
