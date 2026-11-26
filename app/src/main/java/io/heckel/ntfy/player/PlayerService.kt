@@ -167,7 +167,18 @@ class PlayerService : MediaSessionService() {
         // notification within seconds or it kills the whole app, ntfy included. Media3 replaces this
         // placeholder (same id) with the media notification once it plays.
         if (intent?.getBooleanExtra(EXTRA_FOREGROUND, false) == true) goForeground()
-        if (intent?.action?.startsWith(ACTION_PREFIX) != true) return super.onStartCommand(intent, flags, startId) // Media3's own (media buttons)
+        if (intent?.action?.startsWith(ACTION_PREFIX) != true) {
+            // Media3's own starts (media buttons, or its notification manager restarting the service with an empty
+            // intent through startForegroundService) owe Android a foreground notification too. After a STOP the
+            // player is idle and Media3 posts none, so Android killed the whole app 30 s later and its listener
+            // came back unsubscribed (2026-11-26 08:25: the ring's "Office stop", then no pushes at all). Go
+            // foreground at once, let Media3 handle the intent, and drop it again if nothing is loaded.
+            val idle = player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED
+            if (idle) goForeground() // loaded, Media3 posts its own media notification
+            val result = super.onStartCommand(intent, flags, startId)
+            if (idle) main.post { stopIfIdle() }
+            return result
+        }
         handle(intent)
         return START_NOT_STICKY
     }
