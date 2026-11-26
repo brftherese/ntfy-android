@@ -64,7 +64,7 @@
                 <action android:name="io.heckel.ntfy.player.PLAY"/><action android:name="io.heckel.ntfy.player.PAUSE"/>
                 <action android:name="io.heckel.ntfy.player.RESUME"/><action android:name="io.heckel.ntfy.player.TOGGLE"/>
                 <action android:name="io.heckel.ntfy.player.STOP"/><action android:name="io.heckel.ntfy.player.SEEK"/>
-                <action android:name="io.heckel.ntfy.player.SKIP"/><action android:name="io.heckel.ntfy.player.NEXT"/><action android:name="io.heckel.ntfy.player.PREVIOUS"/>
+                <action android:name="io.heckel.ntfy.player.SKIP"/><action android:name="io.heckel.ntfy.player.NEXT"/><action android:name="io.heckel.ntfy.player.PREVIOUS"/><action android:name="io.heckel.ntfy.player.EXT_STATE"/><action android:name="io.heckel.ntfy.player.EXT_SEEK"/><action android:name="io.heckel.ntfy.player.EXT_PAUSE"/><action android:name="io.heckel.ntfy.player.EXT_PLAY"/>
             </intent-filter>
         </receiver>
         <service android:name=".watch.MessagesListener" android:exported="true" android:label="infinity: texts"

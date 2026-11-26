@@ -483,5 +483,50 @@ class PlayerService : MediaSessionService() {
 /** Commands from infinity through Shizuku (`am broadcast`, as the shell: the DUMP permission keeps other apps out). */
 @UnstableApi
 class PlayerCommandReceiver : BroadcastReceiver() {
-    override fun onReceive(c: Context, i: Intent) { PlayerService.send(c, i.action ?: return, i) }
+    override fun onReceive(c: Context, i: Intent) {
+        if (ExternalMedia.handles(i.action)) { resultData = runCatching { ExternalMedia.handle(c, i) }.getOrElse { JSONObject().put("error", it.message ?: "failed").toString() }; return }
+        PlayerService.send(c, i.action ?: return, i)
+    }
+}
+
+/**
+ * Another app's player, for infinity (2026-11-26: ElevenReader loses his place, loops, and starts a finished Office
+ * over; infinity keeps the place and puts it right). Through Android's own media controls, which this app may use
+ * because its Messages listener has notification access: EXT_STATE answers the package's player state as the
+ * broadcast's result (JSON); EXT_SEEK {to_ms}, EXT_PAUSE and EXT_PLAY act on it. Only from infinity through Shizuku
+ * (the receiver requires DUMP, as for the own player's commands).
+ */
+object ExternalMedia {
+    const val ACTION_STATE = "io.heckel.ntfy.player.EXT_STATE"
+    const val ACTION_SEEK = "io.heckel.ntfy.player.EXT_SEEK"
+    const val ACTION_PAUSE = "io.heckel.ntfy.player.EXT_PAUSE"
+    const val ACTION_PLAY = "io.heckel.ntfy.player.EXT_PLAY"
+    fun handles(action: String?) = action == ACTION_STATE || action == ACTION_SEEK || action == ACTION_PAUSE || action == ACTION_PLAY
+
+    private fun controller(c: Context, pkg: String): android.media.session.MediaController? {
+        val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java) ?: return null
+        val listener = android.content.ComponentName(c, io.heckel.ntfy.watch.MessagesListener::class.java)
+        return runCatching { msm.getActiveSessions(listener) }.getOrNull()?.firstOrNull { it.packageName == pkg }
+    }
+
+    fun handle(c: Context, i: Intent): String {
+        val pkg = i.getStringExtra("pkg")?.takeIf { Regex("[A-Za-z0-9_.]{3,100}").matches(it) } ?: return JSONObject().put("error", "no package").toString()
+        val mc = controller(c, pkg) ?: return JSONObject().put("error", "no session").toString()
+        when (i.action) {
+            ACTION_SEEK -> mc.transportControls.seekTo(i.getLongExtra("to_ms", i.getIntExtra("to_ms", 0).toLong()).coerceAtLeast(0))
+            ACTION_PAUSE -> mc.transportControls.pause()
+            ACTION_PLAY -> mc.transportControls.play()
+        }
+        val s = mc.playbackState
+        val m = mc.metadata
+        // Where it is now: the position Android was told, carried forward while playing.
+        val pos = s?.let { st -> if (st.state == android.media.session.PlaybackState.STATE_PLAYING && st.lastPositionUpdateTime > 0)
+            st.position + ((android.os.SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong() else st.position }
+        return JSONObject().put("state", s?.state ?: -1).put("position_ms", pos ?: -1).put("speed", s?.playbackSpeed ?: 0f)
+            .put("actions", s?.actions ?: 0L).put("duration_ms", m?.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION) ?: -1)
+            .put("title", m?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE) ?: "")
+            .put("artist", m?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST) ?: "")
+            .put("album", m?.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM) ?: "")
+            .put("media_id", m?.getString(android.media.MediaMetadata.METADATA_KEY_MEDIA_ID) ?: "").toString()
+    }
 }
