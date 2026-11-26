@@ -82,6 +82,8 @@ class PlayerService : MediaSessionService() {
     private var queueMode = false
     private var queueMore = false
     private var fetchingMore = false
+    private var failedInARow = 0
+    private var pauseReason: String? = null
     private lateinit var buttons: List<CommandButton>
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
     private val ticker = object : Runnable {
@@ -102,6 +104,17 @@ class PlayerService : MediaSessionService() {
             .setSeekBackIncrementMs(SKIP_MS).setSeekForwardIncrementMs(SKIP_MS)
             .build()
         player.addListener(object : Player.Listener {
+            // Paused not by his tap: his car or headphones went away, or another app took the audio for good. infinity
+            // then gives the ring's clicks back at once (a click after leaving the car must not start the phone's speaker).
+            // (Set before onIsPlayingChanged reports the pause, which carries it.)
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                pauseReason = if (playWhenReady) null else when (reason) {
+                    Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> "noisy"
+                    Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> "focus"
+                    else -> null
+                }
+                if (!playWhenReady && pauseReason != null && !player.isPlaying) { report("paused"); save() } // already not playing: no other report comes
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) return
                 markPlaying(isPlaying)
@@ -119,12 +132,21 @@ class PlayerService : MediaSessionService() {
             // Gapless to the next track of a queue, or next/previous from the lock screen or the car.
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 if (!queueMode || mediaItem == null) return
+                if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) main.postDelayed({ if (player.isPlaying) failedInARow = 0 }, 5_000)
                 item = item?.copy(id = mediaItem.mediaId, title = mediaItem.mediaMetadata.title?.toString() ?: "")
                 prefs.edit().putString("last_id", mediaItem.mediaId).putString("last_title", item?.title).apply()
                 report(if (player.playWhenReady) "playing" else "paused")
                 moreIfNearEnd()
             }
-            override fun onPlayerError(error: PlaybackException) { Log.w(TAG, "Playback failed", error); report("error", error.message); stopPlayback() }
+            override fun onPlayerError(error: PlaybackException) {
+                Log.w(TAG, "Playback failed", error); report("error", error.message)
+                // A queue skips a track that won't play (Qobuz refused it, or the network gave out on it) and goes on,
+                // giving up after three in a row; a recording stops as before.
+                if (queueMode && player.hasNextMediaItem() && failedInARow < 3) {
+                    failedInARow++
+                    player.seekToNextMediaItem(); player.prepare(); player.playWhenReady = true
+                } else { failedInARow = 0; stopPlayback() }
+            }
         })
         val openNowPlaying = PendingIntent.getActivity(this, 0, Intent(this, NowPlayingActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -370,14 +392,14 @@ class PlayerService : MediaSessionService() {
             .putLong("at_${r.id}", System.currentTimeMillis()).apply()
     }
 
-    private fun report(state: String, error: String? = null, force: Boolean = true) {
+    private fun report(state: String, error: String? = null, force: Boolean = true, reason: String? = null) {
         val r = item ?: return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 14_000) return
         lastReport = now
         val json = JSONObject().put("id", r.id).put("title", r.title).put("state", state)
             .put("position_s", player.currentPosition / 1000).put("duration_s", if (player.duration > 0) player.duration / 1000 else 0)
-            .put("at_ms", now).apply { if (error != null) put("error", error) }.toString()
+            .put("at_ms", now).apply { if (error != null) put("error", error); (reason ?: pauseReason.takeIf { state == "paused" })?.let { put("reason", it) } }.toString()
         scope.launch {
             runCatching { File(getExternalFilesDir(null), "player-state.json").writeText(json) }
             runCatching {
