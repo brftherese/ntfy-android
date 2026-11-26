@@ -71,7 +71,11 @@ class NowPlayingActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlayerService::class.java))).buildAsync().also { f ->
-            f.addListener({ controller = runCatching { f.get() }.getOrNull()?.also { it.addListener(listener) }; refresh() }, MoreExecutors.directExecutor())
+            f.addListener({
+                controller = runCatching { f.get() }.getOrNull()?.also { it.addListener(listener) }
+                if (controller?.mediaItemCount == 0) PlayerService.loadLast() // the app was killed: bring back the last recording
+                refresh()
+            }, MoreExecutors.directExecutor())
         }
         handler.post(tick)
     }

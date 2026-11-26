@@ -632,6 +632,11 @@ class MainActivity : AppCompatActivity(), AddFragment.SubscribeListener, Notific
                 startActivity(Intent(this, SettingsActivity::class.java))
                 true
             }
+            R.id.main_menu_now_playing -> {
+                // The player's own screen, also after the app was killed (it brings back the last recording, paused)
+                startActivity(Intent(this, io.heckel.ntfy.player.NowPlayingActivity::class.java))
+                true
+            }
             R.id.main_menu_report_bug -> {
                 startActivity(
                     Intent(Intent.ACTION_VIEW, getString(R.string.main_menu_report_bug_url).toUri())

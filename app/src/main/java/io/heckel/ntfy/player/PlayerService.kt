@@ -80,7 +80,7 @@ class PlayerService : MediaSessionService() {
     private var pausedForSpeech = false
     private val prefs by lazy { getSharedPreferences("player", MODE_PRIVATE) }
     private val ticker = object : Runnable {
-        override fun run() { if (player.isPlaying) { report("playing", force = false); save() }; main.postDelayed(this, 15_000) }
+        override fun run() { if (player.isPlaying) { report("playing", force = false); save(); markPlaying(true) }; main.postDelayed(this, 15_000) }
     }
 
     override fun onCreate() {
@@ -99,6 +99,7 @@ class PlayerService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying && player.playWhenReady && player.playbackState == Player.STATE_BUFFERING) return
+                markPlaying(isPlaying)
                 if (!isPlaying && (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED)) return // reported as stopped/ended
                 report(if (isPlaying) "playing" else "paused"); save()
             }
@@ -254,6 +255,12 @@ class PlayerService : MediaSessionService() {
         stopSelf()
     }
 
+    /** When it last played (kept current every 15 s while playing, cleared on pause or stop): an update or a crash
+     *  that kills the app mid-recording leaves it set, so the new app knows to carry on (resumeAfterUpdate). */
+    private fun markPlaying(playing: Boolean) {
+        if (playing) prefs.edit().putLong("playing_at", System.currentTimeMillis()).apply() else prefs.edit().remove("playing_at").apply()
+    }
+
     private fun save() {
         val r = item ?: return
         if (player.playbackState == Player.STATE_IDLE) return
@@ -317,6 +324,16 @@ class PlayerService : MediaSessionService() {
 
         fun startFromPush(c: Context, r: PlayerRequest) {
             send(c, ACTION_PLAY, Intent().putExtra("url", r.url).putExtra("title", r.title).putExtra("id", r.id).apply { r.start?.let { putExtra("start", it) } })
+        }
+
+        /** Now Playing opened with nothing loaded (the app was killed, 2026-11-26: "there is no now playing when the
+         *  app has been killed"): the last recording comes back paused at its saved place, ready for Play. */
+        fun loadLast() { main.post { instance?.let { if (it.item == null || it.player.playbackState == Player.STATE_IDLE) it.ensureItem(autoplay = false) } } }
+
+        /** After an update installed over the top (infinity through Shizuku), what was playing a moment before carries on. */
+        fun resumeAfterUpdate(c: Context) {
+            val at = c.getSharedPreferences("player", Context.MODE_PRIVATE).getLong("playing_at", 0)
+            if (at > 0 && System.currentTimeMillis() - at < 60_000) send(c, ACTION_RESUME)
         }
 
         // Speech runs on its own thread; the player only on the main one.

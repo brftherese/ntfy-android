@@ -511,6 +511,7 @@ class SubscriberService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             Log.d(TAG, "BootStartReceiver: onReceive called")
             SubscriberServiceManager.refresh(context)
+            if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) io.heckel.ntfy.player.PlayerService.resumeAfterUpdate(context)
         }
     }
 

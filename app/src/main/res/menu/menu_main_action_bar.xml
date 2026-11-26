@@ -23,6 +23,9 @@
         android:title="@string/detail_menu_notifications_disabled_forever"
         app:showAsAction="ifRoom" />
     <item
+        android:id="@+id/main_menu_now_playing"
+        android:title="Now Playing" />
+    <item
         android:id="@+id/main_menu_settings"
         android:title="@string/main_menu_settings_title" />
     <item
