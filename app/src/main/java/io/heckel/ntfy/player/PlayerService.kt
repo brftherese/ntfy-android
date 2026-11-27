@@ -141,6 +141,12 @@ class PlayerService : MediaSessionService() {
             }
             // Gapless to the next track of a queue, or next/previous from the lock screen or the car.
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // A recording that comes round again (repeat switched on from outside) has ended: never a second time
+                // from the top (2026-11-27: Midday Prayer looped in his car with no end ever reported, so own30's
+                // unload never ran).
+                if (!queueMode && reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    player.pause(); report("ended"); item?.let { prefs.edit().remove("pos_${it.id}").apply() }; finish(); return
+                }
                 if (!queueMode || mediaItem == null) return
                 if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) main.postDelayed({ if (player.isPlaying) failedInARow = 0 }, 5_000)
                 item = item?.copy(id = mediaItem.mediaId, title = mediaItem.mediaMetadata.title?.toString() ?: "")
@@ -148,6 +154,8 @@ class PlayerService : MediaSessionService() {
                 report(if (player.playWhenReady) "playing" else "paused")
                 moreIfNearEnd()
             }
+            override fun onRepeatModeChanged(repeatMode: Int) { if (repeatMode != Player.REPEAT_MODE_OFF) player.repeatMode = Player.REPEAT_MODE_OFF }
+            override fun onShuffleModeEnabledChanged(enabled: Boolean) { if (enabled) player.shuffleModeEnabled = false }
             override fun onPlayerError(error: PlaybackException) {
                 Log.w(TAG, "Playback failed", error); report("error", error.message)
                 // A queue skips a track that won't play (Qobuz refused it, or the network gave out on it) and goes on,
@@ -268,6 +276,7 @@ class PlayerService : MediaSessionService() {
         save()
         if (request.queue) { playQueue(request, autoplay); return }
         setQueueMode(false); item = request
+        player.repeatMode = Player.REPEAT_MODE_OFF; player.shuffleModeEnabled = false
         prefs.edit().putString("last_url", request.url).putString("last_title", request.title).putString("last_id", request.id).putBoolean("last_queue", false).apply()
         player.setMediaItem(MediaItem.Builder().setMediaId(request.id).setUri(request.url)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(request.title).setArtist("infinity").build()).build())
@@ -359,7 +368,8 @@ class PlayerService : MediaSessionService() {
     }
 
     private fun playerCommands(): Player.Commands {
-        val all = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+        // Repeat and shuffle are never offered: a car or another controller had a recording repeat forever (2026-11-27).
+        val all = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon().removeAll(Player.COMMAND_SET_REPEAT_MODE, Player.COMMAND_SET_SHUFFLE_MODE)
         return if (queueMode) all.build() else all.removeAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM).build()
     }
