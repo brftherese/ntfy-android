@@ -526,7 +526,8 @@ class PlayerCommandReceiver : BroadcastReceiver() {
  * Another app's player, for infinity (2026-11-26: ElevenReader loses his place, loops, and starts a finished Office
  * over; infinity keeps the place and puts it right). Through Android's own media controls, which this app may use
  * because its Messages listener has notification access: EXT_STATE answers the package's player state as the
- * broadcast's result (JSON); EXT_SEEK {to_ms}, EXT_PAUSE and EXT_PLAY act on it. Only from infinity through Shizuku
+ * broadcast's result (JSON, with its repeat and shuffle modes); EXT_SEEK {to_ms}, EXT_PAUSE and EXT_PLAY act on it, and
+ * EXT_NO_REPEAT turns its repeat and shuffle off (2026-11-27: his car's Bluetooth sets repeat, and ElevenReader loops). Only from infinity through Shizuku
  * (the receiver requires DUMP, as for the own player's commands).
  */
 object ExternalMedia {
@@ -534,7 +535,10 @@ object ExternalMedia {
     const val ACTION_SEEK = "io.heckel.ntfy.player.EXT_SEEK"
     const val ACTION_PAUSE = "io.heckel.ntfy.player.EXT_PAUSE"
     const val ACTION_PLAY = "io.heckel.ntfy.player.EXT_PLAY"
-    fun handles(action: String?) = action == ACTION_STATE || action == ACTION_SEEK || action == ACTION_PAUSE || action == ACTION_PLAY
+    const val ACTION_NO_REPEAT = "io.heckel.ntfy.player.EXT_NO_REPEAT"
+    fun handles(action: String?) = action == ACTION_STATE || action == ACTION_SEEK || action == ACTION_PAUSE || action == ACTION_PLAY || action == ACTION_NO_REPEAT
+
+    private val compats = mutableMapOf<String, Pair<android.media.session.MediaSession.Token, android.support.v4.media.session.MediaControllerCompat>>()
 
     private fun controller(c: Context, pkg: String): android.media.session.MediaController? {
         val msm = c.getSystemService(android.media.session.MediaSessionManager::class.java) ?: return null
@@ -550,13 +554,25 @@ object ExternalMedia {
             ACTION_PAUSE -> mc.transportControls.pause()
             ACTION_PLAY -> mc.transportControls.play()
         }
+        // Android's own controller has no repeat or shuffle; the compat one carries them over the same session.
+        // Kept between calls: it learns the modes only once the session answers (a moment after it is made), so the
+        // first read can be -1. Turning them off needs no answer and is harmless when they are already off.
+        val compat = runCatching {
+            compats[pkg]?.takeIf { it.first == mc.sessionToken }?.second
+                ?: android.support.v4.media.session.MediaControllerCompat(c.applicationContext, android.support.v4.media.session.MediaSessionCompat.Token.fromToken(mc.sessionToken))
+                    .also { compats[pkg] = mc.sessionToken to it }
+        }.getOrNull()
+        if (i.action == ACTION_NO_REPEAT && compat != null) {
+            compat.transportControls.setRepeatMode(android.support.v4.media.session.PlaybackStateCompat.REPEAT_MODE_NONE)
+            compat.transportControls.setShuffleMode(android.support.v4.media.session.PlaybackStateCompat.SHUFFLE_MODE_NONE)
+        }
         val s = mc.playbackState
         val m = mc.metadata
         // Where it is now: the position Android was told, carried forward while playing.
         val pos = s?.let { st -> if (st.state == android.media.session.PlaybackState.STATE_PLAYING && st.lastPositionUpdateTime > 0)
             st.position + ((android.os.SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong() else st.position }
         return JSONObject().put("state", s?.state ?: -1).put("position_ms", pos ?: -1).put("speed", s?.playbackSpeed ?: 0f)
-            .put("actions", s?.actions ?: 0L).put("duration_ms", m?.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION) ?: -1)
+            .put("actions", s?.actions ?: 0L).put("repeat_mode", compat?.repeatMode ?: -1).put("shuffle_mode", compat?.shuffleMode ?: -1).put("duration_ms", m?.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION) ?: -1)
             .put("title", m?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE) ?: "")
             .put("artist", m?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST) ?: "")
             .put("album", m?.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM) ?: "")
