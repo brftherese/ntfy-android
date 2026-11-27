@@ -191,6 +191,17 @@ class PlayerService : MediaSessionService() {
                     when (customCommand.customAction) { BACK_30.customAction -> player.seekBack(); FORWARD_30.customAction -> player.seekForward() }
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
+                // Nothing may switch repeat or shuffle on: refused, and the app that asked is reported to infinity.
+                @Deprecated("Media3 still calls it")
+                override fun onPlayerCommandRequest(session: MediaSession, controller: MediaSession.ControllerInfo, playerCommand: Int): Int {
+                    if (playerCommand == Player.COMMAND_SET_REPEAT_MODE || playerCommand == Player.COMMAND_SET_SHUFFLE_MODE) {
+                        val what = if (playerCommand == Player.COMMAND_SET_REPEAT_MODE) "repeat" else "shuffle"
+                        Log.w(TAG, "Refused $what from ${controller.packageName}")
+                        report(if (player.isPlaying) "playing" else "paused", refused = "$what from ${controller.packageName}")
+                        return SessionResult.RESULT_ERROR_PERMISSION_DENIED
+                    }
+                    return SessionResult.RESULT_SUCCESS
+                }
                 // The car's, headset's or watch's next/previous (and fast-forward/rewind) skip 30 s.
                 override fun onMediaButtonEvent(session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent): Boolean {
                     @Suppress("DEPRECATION")
@@ -368,8 +379,9 @@ class PlayerService : MediaSessionService() {
     }
 
     private fun playerCommands(): Player.Commands {
-        // Repeat and shuffle are never offered: a car or another controller had a recording repeat forever (2026-11-27).
-        val all = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon().removeAll(Player.COMMAND_SET_REPEAT_MODE, Player.COMMAND_SET_SHUFFLE_MODE)
+        // Repeat and shuffle stay offered only so an attempt reaches onPlayerCommandRequest, which refuses it and names
+        // the app that tried (2026-11-27: a recording repeated forever; the owner: "it has to be done by something else").
+        val all = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
         return if (queueMode) all.build() else all.removeAll(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
             Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM).build()
     }
@@ -425,14 +437,14 @@ class PlayerService : MediaSessionService() {
             .putLong("at_${r.id}", System.currentTimeMillis()).apply()
     }
 
-    private fun report(state: String, error: String? = null, force: Boolean = true, reason: String? = null) {
+    private fun report(state: String, error: String? = null, force: Boolean = true, reason: String? = null, refused: String? = null) {
         val r = item ?: return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 14_000) return
         lastReport = now
         val json = JSONObject().put("id", r.id).put("title", r.title).put("state", state)
             .put("position_s", player.currentPosition / 1000).put("duration_s", if (player.duration > 0) player.duration / 1000 else 0)
-            .put("at_ms", now).apply { if (error != null) put("error", error); (reason ?: pauseReason.takeIf { state == "paused" })?.let { put("reason", it) } }.toString()
+            .put("at_ms", now).apply { if (error != null) put("error", error); if (refused != null) put("refused", refused); (reason ?: pauseReason.takeIf { state == "paused" })?.let { put("reason", it) } }.toString()
         scope.launch {
             runCatching { File(getExternalFilesDir(null), "player-state.json").writeText(json) }
             runCatching {
